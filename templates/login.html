@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f4f4f4;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            flex-direction: column;
+            text-align: center;
+        }
+
+        .app-name {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #222;
+            letter-spacing: 1px;
+        }
+
+        .app-description {
+            font-size: 16px;
+            color: #555;
+            margin-bottom: 20px;
+            max-width: 400px;
+        }
+
+        .container {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 12px;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        h2 {
+            margin-bottom: 1.5rem;
+            color: #333;
+            font-size: 22px;
+        }
+
+        .login-btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #004D98;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: bold;
+            transition: background 0.3s, transform 0.2s;
+        }
+
+        .login-btn:hover {
+            background-color: #357ae8;
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-name">EcomDraft</div>
+    <div class="app-description">Confirm your COD orders with AI voice calls</div>
+    <div class="container">
+        <h2>Login with Google</h2>
+        <a href="{{ url_for('login') }}" class="login-btn">Sign in with Google</a>
+    </div>
+
+    <footer>
+        <p>&copy; 2025 Ecom Draft. All rights reserved.</p>
+        <a href="{{ url_for('policy') }}">Privacy Policy</a>
+    </footer>
+</body>
+
+</html>

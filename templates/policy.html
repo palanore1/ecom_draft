@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Privacy Policy - EcomDraft App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+
+<body>
+
+    <div class="policy-container">
+        <h1>Privacy Policy - Ecom Draft</h1>
+        <p><strong>Last updated: March 08, 2025</strong></p>
+
+        <h2>1. Introduction</h2>
+        <p>Welcome to Customer Calls ("we," "us," or "our"). This Privacy Policy outlines how we collect, use, disclose,
+            and protect your personal information when you use our web application ("EcomDraft"). The EcomDraft App
+            automates
+            customer
+            order confirmations via phone calls and integrates with Shopify for order management. By using the EcomDraft
+            App, you
+            agree to the practices described herein. If you do not agree, please do not use the EcomDraft App.</p>
+
+        <h2>2. Information We Collect</h2>
+        <p>We collect various types of information to provide and improve our services:</p>
+        <h3>2.1 Personal Information</h3>
+        <ul>
+            <li><strong>User Account Data:</strong> Name, email address, and profile picture collected via Google OAuth
+                during login. We also request read-only access to your Google Spreadsheets to enable importing customer
+                data.</li>
+            <li><strong>Contact Information:</strong> Phone numbers of customers, collected from Google Sheets you
+                provide.</li>
+            <li><strong>Customer Data:</strong> Names, addresses, and order details (e.g., order value, order number)
+                from Google Sheets.</li>
+        </ul>
+        <h3>2.2 Shopify Integration Data</h3>
+        <ul>
+            <li><strong>Store Credentials:</strong> Store name, Shopify Shop URL, and Shopify Access Token, voluntarily
+                provided by you to enable order updates.</li>
+            <li><strong>Order Information:</strong> Order IDs and statuses updated via Shopify API based on customer
+                responses.</li>
+        </ul>
+        <h3>2.3 Usage Data</h3>
+        <ul>
+            <li><strong>App Interactions:</strong> Call statuses (e.g., Confirmed, Declined), stored temporarily in
+                Redis.</li>
+            <li><strong>Technical Data:</strong> IP addresses, browser type, and device information logged during App
+                usage.</li>
+        </ul>
+        <h3>2.4 How Information Is Collected</h3>
+        <p>We collect information directly from you (e.g., via login or settings input), from Google Sheets you upload,
+            and automatically through App usage and third-party integrations.</p>
+
+        <h2>3. How We Use Your Information</h2>
+        <p>We use your information for the following purposes:</p>
+        <ul>
+            <li><strong>Service Delivery:</strong> Authenticate users via Google OAuth, make automated calls via Twilio,
+                and update Shopify orders based on customer responses.</li>
+            <li><strong>Data Management:</strong> Store call statuses in Redis and customer data in our database for
+                processing.</li>
+            <li><strong>Improvement:</strong> Analyze usage patterns to enhance EcomDraft App functionality.</li>
+            <li><strong>Communication:</strong> Send service-related notifications (e.g., call confirmations via
+                Shopify).</li>
+            <li><strong>Legal Compliance:</strong> Meet regulatory requirements or respond to legal requests.</li>
+        </ul>
+
+        <h2>4. How We Share Your Information</h2>
+        <p>We do not sell your personal information. We may share it as follows:</p>
+        <h3>4.1 Third-Party Service Providers</h3>
+        <ul>
+            <li><strong>Google:</strong> For OAuth authentication.</li>
+            <li><strong>Twilio:</strong> For automated phone calls (receives phone numbers and call statuses).</li>
+            <li><strong>Shopify:</strong> For order updates (receives order IDs and statuses).</li>
+            <li><strong>Redis:</strong> For temporary data storage (hosted via our Redis provider).</li>
+        </ul>
+        <h3>4.2 Legal Obligations</h3>
+        <p>We may disclose information if required by law, court order, or to protect our rights, property, or safety.
+        </p>
+        <h3>4.3 Business Transfers</h3>
+        <p>In the event of a merger, acquisition, or sale, your information may be transferred as part of our assets.
+        </p>
+
+        <h2>5. Data Storage and Security</h2>
+        <p>We store your data in a secure SQL database and Redis instance. Personal information is retained as long as
+            your account is active or as needed to provide services. Call statuses in Redis expire after 24 hours (or 5
+            minutes for temporary keys). We implement measures like encryption, access controls, and secure servers to
+            protect your data, but no system is 100% secure.</p>
+
+        <h2>6. Your Rights and Choices</h2>
+        <p>Depending on your location (e.g., GDPR for EU users, CCPA for California residents), you may have the
+            following rights:</p>
+        <ul>
+            <li><strong>Access:</strong> Request a copy of your personal data.</li>
+            <li><strong>Correction:</strong> Update inaccurate information.</li>
+            <li><strong>Deletion:</strong> Request removal of your data (subject to legal obligations).</li>
+            <li><strong>Opt-Out:</strong> Limit certain data uses (e.g., stop using the EcomDraft App to halt
+                processing).</li>
+            <li><strong>Portability:</strong> Receive your data in a structured format.</li>
+        </ul>
+        <p>To exercise these rights, contact us at <a href="mailto:david.barca06@gmail.com">david.barca06@gmail.com</a>.
+            We’ll respond within 5 days (or
+            as required by law).</p>
+
+        <h2>7. Cookies and Tracking Technologies</h2>
+        <p>We use session cookies to maintain your login state. These are essential for EcomDraft App functionality and
+            expire
+            when you log out or close your browser. We do not use tracking cookies or third-party analytics tools for
+            marketing purposes.</p>
+
+        <h2>8. Third-Party Services</h2>
+        <p>EcomDraft App integrates with third-party services, each governed by their own privacy policies:</p>
+        <ul>
+            <li><a href="https://policies.google.com/privacy" target="_blank">Google Privacy Policy</a></li>
+            <li><a href="https://www.twilio.com/legal/privacy" target="_blank">Twilio Privacy Policy</a></li>
+            <li><a href="https://www.shopify.com/legal/privacy" target="_blank">Shopify Privacy Policy</a></li>
+            <li><a href="https://redis.io/legal/privacy-policy" target="_blank">Redis Privacy Policy</a> (if hosted by
+                Redis Labs or similar)</li>
+        </ul>
+        <p>We are not responsible for these third parties’ practices.</p>
+
+        <h2>9. International Data Transfers</h2>
+        <p>Your data may be processed in the United States or other countries where our servers or third-party providers
+            operate. We ensure compliance with applicable data protection laws (e.g., Standard Contractual Clauses for
+            GDPR).</p>
+
+        <h2>10. Children’s Privacy</h2>
+        <p>The EcomDraft App is not intended for users under 13. We do not knowingly collect data from children. If we
+            learn such
+            data has been collected, we will delete it promptly.</p>
+
+        <h2>11. Changes to This Privacy Policy</h2>
+        <p>We may update this policy to reflect changes in our practices or legal requirements. The “Last updated” date
+            will be revised, and significant changes may be notified via email or in-App notice. Please review this page
+            periodically.</p>
+
+        <h2>12. Contact Us</h2>
+        <p>For questions, complaints, or to exercise your rights, contact us at:</p>
+        <ul>
+            <li>Email: <a href="mailto:david.barca06@gmail.com">david.barca06@gmail.com</a></li>
+        </ul>
+    </div>
+
+    <footer>
+        <p>© 2025 EcomDraft. All rights reserved.</p>
+        <a href="{{ url_for('policy') }}">Privacy Policy</a>
+    </footer>
+</body>
+
+</html>

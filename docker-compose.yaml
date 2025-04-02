@@ -1,0 +1,13 @@
+services:
+  web:
+    build: .
+    ports:
+      - "9000:9000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0  # Use the service name 'redis'
+    depends_on:
+      - redis
+    volumes:
+      - ./instance:/app/instance  # Maps ecom_draft/instance to /app/instance
+  redis:
+    image: redis:latest

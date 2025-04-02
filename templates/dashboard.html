@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ecomdraft Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background-color: white;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .navbar-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            /* Space between elements */
+        }
+
+        .navbar h2 {
+            margin: 0;
+            font-size: 1.5em;
+            color: #333;
+        }
+
+        .navbar button {
+            padding: 10px 15px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            border-radius: 5px;
+        }
+
+        .manage-btn,
+        .logout-btn {
+            padding: 8px 15px;
+            font-size: 0.9em;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .manage-btn {
+            background-color: #004D98;
+            color: white;
+        }
+
+        .manage-btn:hover {
+            background-color: #0056b3;
+        }
+
+        .settings-btn {
+            background-color: #17a2b8;
+            color: white;
+        }
+
+        .settings-btn:hover {
+            background-color: #138496;
+        }
+
+        .logout-btn {
+            background-color: #A50044;
+            /* Red button */
+            color: white;
+        }
+
+        .logout-btn:hover {
+            background-color: #b02a37;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        .customer-list {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px 0;
+        }
+
+        .customer-list th,
+        .customer-list td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        .customer-list th {
+            background-color: #004D98;
+            color: white;
+        }
+
+        .status {
+            padding: 5px 10px;
+            border-radius: 12px;
+            font-size: 0.9em;
+        }
+
+        .status-confirmed {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .status-declined {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-pending {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .status-error {
+            background-color: #f5c6cb;
+            color: #721c24;
+        }
+
+        .action-btn {
+            color: black;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .start-call-btn {
+            background-color: #EDBB00;
+        }
+
+        .start-call-btn:hover:not(:disabled) {
+            background-color: #b79003;
+        }
+
+        .action-btn:disabled,
+        .stop-calling-btn.disabled {
+            background-color: #6c757d;
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .stop-calling-btn {
+            background-color: #A50044;
+        }
+
+        .stop-calling-btn:hover:not(:disabled) {
+            background-color: #810136;
+        }
+
+        .delete-btn {
+            color: #A50044;
+            border: none;
+            background: none;
+            cursor: pointer;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1em;
+            color: #555;
+        }
+
+        .profile-pic {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1px solid #ddd;
+        }
+
+        .store-name-container {
+            max-width: 400px;
+            margin: 20px auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #store-name-input {
+            padding: 5px;
+            font-size: 1em;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        #save-store-name-btn {
+            padding: 5px 10px;
+            font-size: 1em;
+            background-color: #004D98;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #save-store-name-btn:hover {
+            background-color: #0056b3;
+        }
+
+        /* Settings Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: #fff;
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 5px;
+            width: 80%;
+            max-width: 500px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+    <script>
+        let isCalling = false;
+
+        function manageSubscription() {
+            fetch("/manage-subscription", { method: "POST" })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.portal_url) {
+                        window.location.href = data.portal_url;
+                    } else {
+                        alert("Error: " + data.error);
+                    }
+                });
+        }
+
+        // function loadSheetData() {
+        //     const sheet_url = document.getElementById("sheet_url").value;
+
+        //     fetch("/fetch_sheet", {
+        //         method: "POST",
+        //         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        //         body: `sheet_url=${encodeURIComponent(sheet_url)}`
+        //     })
+        //         .then(response => response.json())
+        //         .then(responseData => {
+        //             console.log("Response Data:", responseData); // Debugging
+
+        //             // Check if response is already an array
+        //             const customers = Array.isArray(responseData) ? responseData : responseData.data;
+
+        //             if (!Array.isArray(customers)) {
+        //                 console.error("Expected an array, but got:", responseData);
+        //                 return;
+        //             }
+
+        //             const tableBody = document.querySelector(".customer-list tbody");
+        //             tableBody.innerHTML = "";
+
+        //             customers.forEach(customer => {
+        //                 if (!isValidCustomer(customer)) return;
+        //                 const statusClass = customer.status === "Confirmed" ? "status-confirmed" :
+        //                     customer.status === "Declined" ? "status-declined" : "status-pending";
+
+        //                 const row = document.createElement("tr");
+        //                 row.innerHTML = `
+        //             <td>${customer.name || ""}</td>
+        //             <td>${customer.phone || ""}</td>
+        //             <td>${customer.address || ""}, ${customer.city || ""}</td>
+        //             <td>${customer.order_value || ""}</td>
+        //             <td>${customer.order_id || ""}</td>
+        //             <td><span class="status ${statusClass}">${customer.status}</span></td>
+        //             <td><button class="delete-btn"><i class="fas fa-trash"></i></button></td>
+        //         `;
+        //                 tableBody.appendChild(row);
+
+        //                 // Add event listener to the delete button
+        //                 const deleteButton = row.querySelector(".delete-btn");
+        //                 deleteButton.addEventListener("click", function () {
+        //                     deleteCustomerRow(row);
+        //                 });
+        //             });
+        //         })
+        //         .catch(error => console.error("Fetch error:", error));
+        // }
+
+        function loadSheetData() {
+            fetch("/get_draft_orders", {
+                method: "GET",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" }
+            })
+                .then(response => response.json())
+                .then(responseData => {
+                    console.log("Response Data:", responseData); // Debugging
+
+                    // Check if response is already an array
+                    const customers = Array.isArray(responseData) ? responseData : responseData.data;
+
+                    if (!Array.isArray(customers)) {
+                        console.error("Expected an array, but got:", responseData);
+                        return;
+                    }
+
+                    const tableBody = document.querySelector(".customer-list tbody");
+                    tableBody.innerHTML = "";
+
+                    customers.forEach(customer => {
+                        // if (!isValidCustomer(customer)) return;
+                        const statusClass = customer.status === "Confirmed" ? "status-confirmed" :
+                            customer.status === "Declined" ? "status-declined" : "status-pending";
+
+                        const row = document.createElement("tr");
+                        row.innerHTML = `
+                    <td>${customer.phone_number || ""}</td>
+                    <td>${customer.order_name || ""}</td>
+                    <td>${customer.total_price || ""}</td>
+                    <td>${customer.created_at || ""}</td>
+                    <td><span class="status ${statusClass}">${customer.status}</span></td>
+                    <td><button class="delete-btn"><i class="fas fa-trash"></i></button></td>
+                `;
+                        tableBody.appendChild(row);
+
+                        // Add event listener to the delete button
+                        const deleteButton = row.querySelector(".delete-btn");
+                        deleteButton.addEventListener("click", function () {
+                            deleteCustomerRow(row);
+                        });
+                    });
+                })
+                .catch(error => console.error("Fetch error:", error));
+        }
+
+
+        function deleteCustomerRow(row) {
+            row.remove(); // Remove the row from the table
+            console.log(`Deleted row for ${row.cells[0].textContent}`);
+        }
+
+        // Helper function to validate a customer
+        function isValidCustomer(customer) {
+            // Consider a customer valid if at least one key field (name or phone) has a non-empty value
+            const requiredFields = ["name", "phone"];
+            return requiredFields.some(field =>
+                customer[field] && customer[field].trim() !== "" && customer[field] !== "undefined"
+            );
+        }
+
+
+        async function startCalling() {
+            const tableBody = document.querySelector(".customer-list tbody");
+            const rows = tableBody.getElementsByTagName("tr");
+            const button = document.getElementById("call-btn");
+            const stopButton = document.getElementById("stop-calling-btn");
+            const storeName = document.getElementById("store-name-input").value.trim() || "Magazinul Nostru";
+
+            isCalling = true;
+            stopButton.disabled = false;
+            // Disable button during processing
+            button.disabled = true;
+            button.textContent = "Calling..."; // Visual feedback
+            button.classList.add("disabled"); // Optional: for extra styling
+
+            for (let row of rows) {
+                if (!isCalling) {
+                    console.log("Stopping calls after current call...");
+                    break; // Stop after the current call completes
+                }
+
+                const cells = row.getElementsByTagName("td");
+                const currentStatus = cells[4].textContent.trim(); // Status column
+
+                // Skip if already processed (only call if status is "⏳")
+                if (currentStatus !== "⏳") {
+                    console.log(`Skipping ${cells[0].textContent}: already processed (${currentStatus})`);
+                    continue;
+                }
+
+
+                const customer = {
+                    phone: cells[0].textContent,
+                    status: cells[4].textContent,
+                    store_name: storeName,
+                    order_value: cells[2].textContent,
+                    order_id: cells[1].textContent
+                };
+                cells[4].innerHTML = `<span class="status status-pending">Calling...</span>`;
+                try {
+                    const response = await fetch("/call_customer", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(customer)
+                    });
+                    const result = await response.json();
+
+                    if (result.error) {
+                        console.error(result.error);
+                        cells[4].innerHTML = `<span class="status status-error">${result.error}</span>`;
+                    } else {
+                        const newStatus = result.status;
+                        const statusClass = newStatus === "Confirmed" ? "status-confirmed" :
+                            newStatus === "Declined" ? "status-declined" : "status-pending";
+                        if (result.skipped) {
+                            console.log(`Skipping ${customer.name}: already processed (${newStatus})`);
+                        }
+                        cells[4].innerHTML = `<span class="status ${statusClass}">${newStatus}</span>`;
+                    }
+                } catch (error) {
+                    console.error("Error calling customer:", error);
+                    cells[4].innerHTML = `<span class="status status-error">Error</span>`;
+                }
+            }
+            isCalling = false;
+            stopButton.disabled = true;
+            // Re-enable button after completion
+            button.disabled = false;
+            button.textContent = "Start Calling";
+            button.classList.remove("disabled");
+        }
+
+
+        function stopCalling() {
+            isCalling = false;
+            const stopButton = document.getElementById("stop-calling-btn");
+            stopButton.disabled = true; // Disable stop button immediately
+        }
+
+
+        function saveStoreName() {
+            const storeName = document.getElementById("store-name-input").value.trim();
+            if (!storeName) {
+                alert("Store name cannot be empty");
+                return;
+            }
+
+            fetch("/update_store_name", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ store_name: storeName })
+            })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.error) {
+                        alert(result.error);
+                    } else {
+                        alert("Store name saved successfully!");
+                    }
+                })
+                .catch(error => {
+                    console.error("Error saving store name:", error);
+                    alert("Failed to save store name");
+                });
+        }
+
+
+
+    </script>
+</head>
+
+<body>
+    <div class="navbar">
+        <h2>Customer Calls Dashboard</h2>
+        <div class="navbar-right">
+            <div class="user-info">
+                <span>Logged in as: {{ name }}</span>
+                <img src="{{ profile_picture }}" alt="Profile Picture" class="profile-pic">
+            </div>
+            <button class="manage-btn" onclick="manageSubscription()">Manage Subscription</button>
+            <button id="settings-btn" class="settings-btn" onclick="openSettingsModal()">Settings</button>
+            <button id="logout-btn" class="logout-btn">Logout</button>
+        </div>
+    </div>
+
+    <!-- Store Name Input (outside modal for quick access) -->
+    <div class="store-name-container">
+        <label for="store-name-input">Store Name:</label>
+        <input type="text" id="store-name-input" value="{{ store_name }}" placeholder="Enter store name">
+        <button id="save-store-name-btn" onclick="saveStoreName()">Save</button>
+    </div>
+
+    <div class="container">
+        <div class="input-container">
+            <button class="action-btn start-call-btn" id="load-sheet-btn" onclick="loadSheetData()">Load Draft
+                Orders</button>
+        </div>
+
+        <!-- Customer Table -->
+        <table class="customer-list">
+            <thead>
+                <tr>
+                    <th>Phone Number</th>
+                    <th>Order Name</th>
+                    <th>Total Price</th>
+                    <th>Created At</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+
+        <!-- Call Control Buttons -->
+        <div class="call-controls">
+            <button class="action-btn start-call-btn" id="call-btn" onclick="startCalling()">Start Calls</button>
+            <button class="action-btn stop-calling-btn" id="stop-calling-btn" onclick="stopCalling()" disabled>Stop
+                Calling</button>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeSettingsModal()">×</span>
+            <h3>Shopify Settings</h3>
+            <form id="shopify-settings-form">
+                <label for="modal-store-name">Store Name:</label>
+                <input type="text" id="modal-store-name" value="{{ current_user.store_name or 'Magazinul Meu' }}"
+                    placeholder="e.g., My Store">
+
+                <label for="shopify-shop-url">Shopify Shop URL:</label>
+                <input type="text" id="shopify-shop-url" value="{{ current_user.shopify_shop_url or '' }}"
+                    placeholder="e.g., your-store.myshopify.com">
+
+                <label for="shopify-access-token">Shopify Access Token:</label>
+                <input type="text" id="shopify-access-token" value="{{ current_user.shopify_access_token or '' }}"
+                    placeholder="Enter Shopify Access Token">
+                <input type="text" id="twilio_phone_number" value=" {{ current_user.phone_number or '' }}"
+                    placeholder="Enter your phone number">
+                <button type="button" onclick="saveShopifySettings()">Save Settings</button>
+            </form>
+        </div>
+    </div>
+
+
+
+    <script src="https://kit.fontawesome.com/your-font-awesome-kit.js" crossorigin="anonymous"></script>
+    <script>
+        function openSettingsModal() {
+            document.getElementById("settings-modal").style.display = "block";
+        }
+
+        function closeSettingsModal() {
+            document.getElementById("settings-modal").style.display = "none";
+        }
+
+        function saveShopifySettings() {
+            const storeName = document.getElementById("modal-store-name").value.trim();
+            const shopifyShopUrl = document.getElementById("shopify-shop-url").value.trim();
+            const shopifyAccessToken = document.getElementById("shopify-access-token").value.trim();
+            const twilioPhoneNumber = document.getElementById("twilio_phone_number").value.trim();
+
+            if (!storeName || !shopifyShopUrl || !shopifyAccessToken || !twilioPhoneNumber) {
+                alert("All fields are required!");
+                return;
+            }
+
+            fetch("/update_settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    store_name: storeName,
+                    shopify_shop_url: shopifyShopUrl,
+                    shopify_access_token: shopifyAccessToken,
+                    twilio_phone_number: twilioPhoneNumber,
+                })
+            })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.error) {
+                        alert(result.error);
+                    } else {
+                        alert("Shopify settings saved successfully!");
+                        document.getElementById("store-name-input").value = storeName; // Sync with top input
+                        closeSettingsModal();
+                    }
+                })
+                .catch(error => {
+                    console.error("Error saving Shopify settings:", error);
+                    alert("Failed to save Shopify settings");
+                });
+        }
+
+        document.getElementById("settings-btn").addEventListener("click", openSettingsModal);
+
+        // Close modal when clicking outside
+        window.onclick = function (event) {
+            const modal = document.getElementById("settings-modal");
+            if (event.target == modal) {
+                closeSettingsModal();
+            }
+        };
+
+
+        document.getElementById("logout-btn")?.addEventListener("click", function () {
+            window.location.href = "{{ url_for('logout') }}";
+        });
+    </script>
+
+
+
+</body>
+
+</html>

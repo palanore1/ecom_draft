@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #004D98;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            transition: background 0.3s;
+            border: none;
+            cursor: pointer;
+        }
+
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background-color: white;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .navbar-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            /* Space between elements */
+        }
+
+        .navbar h2 {
+            margin: 0;
+            font-size: 1.5em;
+            color: #333;
+        }
+
+        .navbar button {
+            padding: 10px 15px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            border-radius: 5px;
+        }
+
+        .manage-btn,
+        .logout-btn {
+            padding: 8px 15px;
+            font-size: 0.9em;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+
+        .logout-btn {
+            background-color: #A50044;
+            color: white;
+        }
+
+        .logout-btn:hover {
+            background-color: #b02a37;
+        }
+
+        .btn:hover {
+            background-color: #0056b3;
+        }
+
+        p {
+            color: red;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            /* Space between name and picture */
+            font-size: 1em;
+            color: #555;
+        }
+
+        .profile-pic {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1px solid #ddd;
+        }
+    </style>
+    <script>
+        function subscribe() {
+            fetch("/create-checkout-session", { method: "POST" })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.checkout_url) {
+                        window.location.href = data.checkout_url;
+                    } else {
+                        alert("Error: " + data.error);
+                    }
+                });
+        }
+
+        function logout() {
+            window.location.href = "{{ url_for('logout') }}";
+        }
+    </script>
+</head>
+
+<body>
+    <div class="navbar">
+        <h2>Customer Calls Dashboard</h2>
+        <div class="navbar-right">
+            <div class="user-info">
+                <span>Logged in as: {{ name }}</span>
+                <img src="{{ profile_picture }}" alt="Profile Picture" class="profile-pic">
+            </div>
+            <button onclick="logout()" id="logout-btn" class="logout-btn">Logout</button>
+        </div>
+    </div>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <p>{{ message }}</p>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        {% if subscribed %}
+        <h2>You are already subscribed! 🎉</h2>
+        <p>Enjoy your access to the platform.</p>
+        <a href="{{ url_for('dashboard') }}" class="btn">Go to Dashboard</a>
+        {% else %}
+        <h2>You need a subscription to access this service.</h2>
+        <button onclick="subscribe()" class="btn">Subscribe Now</button>
+        {% endif %}
+    </div>
+
+
+</body>
+
+</html>
