@@ -13,4 +13,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 9000
 
 # Run the Flask app
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:9000", "app:app"]
+# CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:9000", "app:app"]
+CMD ["python3", "-u", "app.py"]

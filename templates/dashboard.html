@@ -232,27 +232,84 @@
             background-color: #0056b3;
         }
 
-        /* Settings Modal */
         .modal {
             display: none;
             position: fixed;
-            z-index: 1000;
+            z-index: 1;
             left: 0;
             top: 0;
             width: 100%;
             height: 100%;
             overflow: auto;
-            background-color: rgba(0, 0, 0, 0.5);
+            background-color: rgba(0, 0, 0, 0.4);
+            /* Semi-transparent background */
+            align-items: center;
+            justify-content: center;
         }
 
         .modal-content {
-            background-color: #fff;
+            background-color: #fefefe;
             margin: 15% auto;
             padding: 20px;
-            border-radius: 5px;
+            border: 1px solid #888;
             width: 80%;
             max-width: 500px;
+            position: relative;
+            border-radius: 8px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .close-btn {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            border: none;
+            background: none;
+            cursor: pointer;
+            padding: 0;
+            position: absolute;
+            top: 10px;
+            right: 15px;
+        }
+
+        .close-btn:hover,
+        .close-btn:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="text"] {
+            width: calc(100% - 12px);
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        .modal-content button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .modal-content button:hover {
+            background-color: #45a049;
         }
     </style>
     <script>
@@ -270,57 +327,8 @@
                 });
         }
 
-        // function loadSheetData() {
-        //     const sheet_url = document.getElementById("sheet_url").value;
 
-        //     fetch("/fetch_sheet", {
-        //         method: "POST",
-        //         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        //         body: `sheet_url=${encodeURIComponent(sheet_url)}`
-        //     })
-        //         .then(response => response.json())
-        //         .then(responseData => {
-        //             console.log("Response Data:", responseData); // Debugging
-
-        //             // Check if response is already an array
-        //             const customers = Array.isArray(responseData) ? responseData : responseData.data;
-
-        //             if (!Array.isArray(customers)) {
-        //                 console.error("Expected an array, but got:", responseData);
-        //                 return;
-        //             }
-
-        //             const tableBody = document.querySelector(".customer-list tbody");
-        //             tableBody.innerHTML = "";
-
-        //             customers.forEach(customer => {
-        //                 if (!isValidCustomer(customer)) return;
-        //                 const statusClass = customer.status === "Confirmed" ? "status-confirmed" :
-        //                     customer.status === "Declined" ? "status-declined" : "status-pending";
-
-        //                 const row = document.createElement("tr");
-        //                 row.innerHTML = `
-        //             <td>${customer.name || ""}</td>
-        //             <td>${customer.phone || ""}</td>
-        //             <td>${customer.address || ""}, ${customer.city || ""}</td>
-        //             <td>${customer.order_value || ""}</td>
-        //             <td>${customer.order_id || ""}</td>
-        //             <td><span class="status ${statusClass}">${customer.status}</span></td>
-        //             <td><button class="delete-btn"><i class="fas fa-trash"></i></button></td>
-        //         `;
-        //                 tableBody.appendChild(row);
-
-        //                 // Add event listener to the delete button
-        //                 const deleteButton = row.querySelector(".delete-btn");
-        //                 deleteButton.addEventListener("click", function () {
-        //                     deleteCustomerRow(row);
-        //                 });
-        //             });
-        //         })
-        //         .catch(error => console.error("Fetch error:", error));
-        // }
-
-        function loadSheetData() {
+        function loadShopifyDrafts() {
             fetch("/get_draft_orders", {
                 method: "GET",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" }
@@ -515,7 +523,7 @@
 
     <div class="container">
         <div class="input-container">
-            <button class="action-btn start-call-btn" id="load-sheet-btn" onclick="loadSheetData()">Load Draft
+            <button class="action-btn start-call-btn" id="load-sheet-btn" onclick="loadShopifyDrafts()">Load Draft
                 Orders</button>
         </div>
 
@@ -537,39 +545,71 @@
 
         <!-- Call Control Buttons -->
         <div class="call-controls">
-            <button class="action-btn start-call-btn" id="call-btn" onclick="startCalling()">Start Calls</button>
+            <button class="action-btn start-call-btn" id="call-btn" onclick="startCalling()">Start Calls Drafts</button>
             <button class="action-btn stop-calling-btn" id="stop-calling-btn" onclick="stopCalling()" disabled>Stop
-                Calling</button>
+                Calling Drafts</button>
         </div>
+
+
     </div>
 
+    <!-- Auto dialling service status-->
+    <div id="calling-status">
+        Calling Service is: <span id="status-text"></span>
+        <button id="toggleBtn"></button>
+    </div>
+
+    <h2>Recent Calls</h2>
+    <table id="calls-table" border="1" cellpadding="8" cellspacing="0" style="width: 100%; text-align: left;">
+        <thead>
+            <tr>
+                <th>Phone</th>
+                <th>Order ID</th>
+                <th>Status</th>
+                <th>Timestamp</th>
+            </tr>
+        </thead>
+        <tbody id="calls-body"></tbody>
+    </table>
+
+
     <!-- Settings Modal -->
-    <div id="settings-modal" class="modal">
+    <div id="settings-modal" class="modal" role="dialog" aria-labelledby="modal-title" aria-modal="true">
         <div class="modal-content">
-            <span class="close-btn" onclick="closeSettingsModal()">×</span>
-            <h3>Shopify Settings</h3>
+            <button class="close-btn" aria-label="Close settings modal" onclick="closeSettingsModal()">×</button>
+            <h3 id="modal-title">Shopify Settings</h3>
             <form id="shopify-settings-form">
-                <label for="modal-store-name">Store Name:</label>
-                <input type="text" id="modal-store-name" value="{{ current_user.store_name or 'Magazinul Meu' }}"
-                    placeholder="e.g., My Store">
-
-                <label for="shopify-shop-url">Shopify Shop URL:</label>
-                <input type="text" id="shopify-shop-url" value="{{ current_user.shopify_shop_url or '' }}"
-                    placeholder="e.g., your-store.myshopify.com">
-
-                <label for="shopify-access-token">Shopify Access Token:</label>
-                <input type="text" id="shopify-access-token" value="{{ current_user.shopify_access_token or '' }}"
-                    placeholder="Enter Shopify Access Token">
-                <input type="text" id="twilio_phone_number" value=" {{ current_user.phone_number or '' }}"
-                    placeholder="Enter your phone number">
+                <div class="form-group">
+                    <label for="modal-store-name">Store Name:</label>
+                    <input type="text" id="modal-store-name" value="{{ current_user.store_name or 'Magazinul Meu' }}"
+                        placeholder="e.g., My Store">
+                </div>
+                <div class="form-group">
+                    <label for="shopify-shop-url">Shopify Shop URL:</label>
+                    <input type="text" id="shopify-shop-url" value="{{ current_user.shopify_shop_url or '' }}"
+                        placeholder="e.g., your-store.myshopify.com">
+                </div>
+                <div class="form-group">
+                    <label for="shopify-access-token">Shopify Access Token:</label>
+                    <input type="text" id="shopify-access-token" value="{{ current_user.shopify_access_token or '' }}"
+                        placeholder="Enter Shopify Access Token">
+                </div>
+                <div class="form-group">
+                    <label for="twilio_phone_number">Phone Number:</label>
+                    <input type="text" id="twilio_phone_number" value="{{ current_user.phone_number or '' }}"
+                        placeholder="Enter your phone number">
+                </div>
+                <div class="form-group">
+                    <label for="cod_form_pn_label">COD Form Phone Number Label:</label>
+                    <input type="text" id="cod_form_pn_label"
+                        value="{{ current_user.cod_form_pn_label or 'Phone Number / Telefon' }}"
+                        placeholder="Enter your COD Form Phone Number Label">
+                </div>
                 <button type="button" onclick="saveShopifySettings()">Save Settings</button>
             </form>
         </div>
     </div>
 
-
-
-    <script src="https://kit.fontawesome.com/your-font-awesome-kit.js" crossorigin="anonymous"></script>
     <script>
         function openSettingsModal() {
             document.getElementById("settings-modal").style.display = "block";
@@ -584,6 +624,7 @@
             const shopifyShopUrl = document.getElementById("shopify-shop-url").value.trim();
             const shopifyAccessToken = document.getElementById("shopify-access-token").value.trim();
             const twilioPhoneNumber = document.getElementById("twilio_phone_number").value.trim();
+            const codFormPNLabel = document.getElementById("cod_form_pn_label").value.trim();
 
             if (!storeName || !shopifyShopUrl || !shopifyAccessToken || !twilioPhoneNumber) {
                 alert("All fields are required!");
@@ -598,6 +639,7 @@
                     shopify_shop_url: shopifyShopUrl,
                     shopify_access_token: shopifyAccessToken,
                     twilio_phone_number: twilioPhoneNumber,
+                    cod_form_pn_label: codFormPNLabel,
                 })
             })
                 .then(response => response.json())
@@ -630,9 +672,76 @@
         document.getElementById("logout-btn")?.addEventListener("click", function () {
             window.location.href = "{{ url_for('logout') }}";
         });
+
+
+        // Status stuff
+        const statusText = document.getElementById('status-text');
+        const toggleBtn = document.getElementById('toggleBtn');
+
+        let isCallingOn = "{{ is_calling_on }}"; // Get initial status from Flask
+
+        function updateButtonAndText() {
+            if (isCallingOn) {
+                statusText.textContent = 'ON';
+                toggleBtn.textContent = 'Turn OFF Calling';
+            } else {
+                statusText.textContent = 'OFF';
+                toggleBtn.textContent = 'Turn ON Calling';
+            }
+        }
+
+        updateButtonAndText();
+
+        async function toggleCallingService() {
+            const newState = !isCallingOn;
+            const stateString = newState ? 'on' : 'off';
+            const endpoint = newState ? "/start_timer" : "/stop_timer"; // Use provided endpoints
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" }
+                });
+                const result = await response.json();
+                if (result.error) {
+                    alert(result.error);
+                } else {
+                    isCallingOn = newState;
+                    updateButtonAndText();
+                    alert(`Timer ${newState ? 'started' : 'stopped'} successfully!`);
+                }
+            } catch (error) {
+                console.error(`Error ${newState ? 'starting' : 'stopping'} timer:`, error);
+                alert(`Failed to ${newState ? 'start' : 'stop'} timer`);
+            }
+        }
+
+        toggleBtn.addEventListener('click', toggleCallingService);
+
+        // Call logs updates
+        function fetchCalls() {
+            fetch("/api/calls")
+                .then(res => res.json())
+                .then(calls => {
+                    const tbody = document.getElementById("calls-body");
+                    tbody.innerHTML = ""; // Clear current table
+
+                    calls.forEach(call => {
+                        const row = document.createElement("tr");
+                        row.innerHTML = `
+                    <td>${call.phone}</td>
+                    <td>${call.order_id}</td>
+                    <td>${call.status}</td>
+                    <td>${call.timestamp}</td>
+                `;
+                        tbody.appendChild(row);
+                    });
+                });
+        }
+
+        setInterval(fetchCalls, 5000);
+        fetchCalls();
     </script>
-
-
 
 </body>
 

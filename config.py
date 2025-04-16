@@ -15,12 +15,7 @@ class Config:
     STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
     SQLALCHEMY_DATABASE_URI = "sqlite:///users.db"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    GOOGLE_OAUTH_SCOPES = [
-        "openid",
-        "email",
-        "profile",
-        "https://www.googleapis.com/auth/spreadsheets.readonly",  # Sheets read access
-    ]
+    GOOGLE_OAUTH_SCOPES = ["openid", "email", "profile"]
 
     # TWILIO STUFF
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")

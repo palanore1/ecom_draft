@@ -8,6 +8,6 @@ services:
     depends_on:
       - redis
     volumes:
-      - ./instance:/app/instance  # Maps ecom_draft/instance to /app/instance
+      - ./:/app  # Maps ecom_draft to /app
   redis:
     image: redis:latest

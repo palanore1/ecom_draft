@@ -1,6 +1,6 @@
 import os
 import re
-import time
+import time as tm
 from flask import (
     Flask,
     redirect,
@@ -11,6 +11,7 @@ from flask import (
     flash,
     jsonify,
     Response,
+    stream_with_context,
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
@@ -22,13 +23,11 @@ from flask_login import (
     login_required,
 )
 from flask_session import Session
-
 from authlib.integrations.flask_client import OAuth
 import json
 import stripe
 import redis
-from datetime import timedelta, datetime
-
+from datetime import timedelta, datetime, time
 import requests
 from models import db, User
 from config import Config
@@ -41,9 +40,12 @@ from twilio.twiml.voice_response import VoiceResponse
 from config import Config
 from urllib.parse import quote
 import pytz
+import threading
 
 app = Flask(__name__)
 app.config.from_object(Config)
+
+user_timers = {}  # Dictionary to store user timers and data
 
 
 # Redis Session Configuration
@@ -56,6 +58,8 @@ redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
 
 app.config["SESSION_REDIS"] = redis.from_url(redis_url, decode_responses=False)
+redis_client = app.config["SESSION_REDIS"]
+
 
 Session(app)
 
@@ -71,13 +75,6 @@ STRIPE_WEBHOOK_SECRET = "whsec_OrOg0j60jZoApAgV0jlSBRNtX5zBah2n"
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 discovery_doc = requests.get(GOOGLE_DISCOVERY_URL).json()
 
-# OAuth Setup
-GOOGLE_OAUTH_SCOPES = [
-    "openid",
-    "email",
-    "profile",
-    "https://www.googleapis.com/auth/spreadsheets.readonly",  # Sheets read access
-]
 
 oauth = OAuth(app)
 google = oauth.register(
@@ -98,21 +95,39 @@ google = oauth.register(
 )
 
 
+# Store calls data
+def store_call_for_user(
+    user_id, phone, order_id, status, max_calls=50, ttl_seconds=3600
+):
+    key = f"user:{user_id}:calls"
+    call_data = {
+        "phone": phone,
+        "order_id": order_id,
+        "status": status,
+        "timestamp": tm.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    redis_client.lpush(key, json.dumps(call_data))
+    redis_client.ltrim(key, 0, max_calls - 1)
+    redis_client.expire(key, ttl_seconds)
+
+
 # HELPER FUNCTIONS
 def get_user_by_email(email):
     user = User.query.filter_by(email=email).first()
     return user
 
+
 def format_datetime(iso_string):
     # Parse the input string
     dt = datetime.fromisoformat(iso_string)
-    
+
     # Convert to local time zone if needed (optional)
-    local_tz = pytz.timezone('Europe/Athens')  # Adjust timezone as needed
+    local_tz = pytz.timezone("Europe/Athens")  # Adjust timezone as needed
     dt = dt.astimezone(local_tz)
-    
+
     # Format in a more human-readable way
-    return dt.strftime('%A, %B %d, %Y at %I:%M %p %Z')
+    return dt.strftime("%A, %B %d, %Y at %I:%M %p %Z")
 
 
 def handle_subscription_update(subscription):
@@ -176,6 +191,72 @@ def clean_order_list(order_list):
     return list(phone_map.values())
 
 
+def is_within_24_hours(date_string):
+    """
+    Checks if a given ISO 8601 date string is within the last 24 hours.
+
+    Args:
+        date_string (str): The date string in ISO 8601 format.
+
+    Returns:
+        bool: True if the date is within the last 24 hours, False otherwise.
+    """
+    try:
+        # Parse the date string
+        date_object = datetime.fromisoformat(date_string)
+
+        # Get the current time
+        now = datetime.now(
+            date_object.tzinfo
+        )  # use the timezone of the date_object to avoid timezone issues.
+
+        # Calculate the difference
+        time_difference = now - date_object
+
+        # Check if the difference is less than 24 hours
+        return time_difference < timedelta(days=1)
+
+    except ValueError:
+        print("Invalid date string format.")
+        return False
+
+
+def is_time_within_intervals(time_intervals):
+    """
+    Checks if the current system time is within any of the given time intervals.
+
+    Args:
+        time_intervals (list of tuples): A list of time interval tuples,
+                                         where each tuple contains two strings
+                                         representing the start and end times
+                                         in "HH:MM" format.
+
+    Returns:
+        bool: True if the current time is within any of the intervals, False otherwise.
+    """
+    current_time = datetime.now().time()
+
+    for start_time_str, end_time_str in time_intervals:
+        try:
+            start_time = time.fromisoformat(start_time_str)
+            end_time = time.fromisoformat(end_time_str)
+
+            # Handle cases where the interval crosses midnight
+            if start_time <= end_time:
+                if start_time <= current_time <= end_time:
+                    return True
+            else:
+                if current_time >= start_time or current_time <= end_time:
+                    return True
+
+        except ValueError:
+            print(
+                f"Invalid time format in interval: ({start_time_str}, {end_time_str})"
+            )
+
+    return False
+
+
 # SHEETS API
 def read_google_sheet(sheet_url):
     token = session.get("google_token")
@@ -224,11 +305,6 @@ def home():
 @app.route("/policy")
 def policy():
     return render_template("policy.html")
-
-
-# @app.route("/login")
-# def login():
-#     return google.authorize_redirect(url_for("callback", _external=True))
 
 
 @app.route("/login")
@@ -298,13 +374,16 @@ def dashboard():
     if "user" not in session:
         print("Session missing 'user' key, redirecting to login")
         return redirect(url_for("login"))
-
+    print(user_timers.get(current_user.id, {}))
+    is_calling_on = user_timers.get(current_user.id, {}).get("timer", None) is not None
+    print(is_calling_on)
     profile_picture = session["user"]["picture"]
     return render_template(
         "dashboard.html",
         profile_picture=profile_picture,
         name=current_user.name,
         store_name=current_user.store_name,
+        is_calling_on=is_calling_on,
     )
 
 
@@ -459,11 +538,12 @@ def fetch_sheet():
 
     return jsonify({"data": cleaned_data})
 
+
 @app.route("/get_draft_orders", methods=["GET"])
 def get_draft_orders():
     if "user" not in session:
         return jsonify({"error": "User not authenticated"}), 401
-    
+
     draft_orders = get_all_drafts(current_user)
     proc_drafts = process_drafts(draft_orders)
 
@@ -486,7 +566,7 @@ def get_draft_orders():
             print(f"Error at fetcing leads: {e}")
             pass
     if enriched_data == []:
-        raise Exception("No data returned!")   
+        raise Exception("No data returned!")
 
     return jsonify({"data": enriched_data})
 
@@ -516,14 +596,18 @@ def update_shopify_settings():
     shopify_shop_url = data.get("shopify_shop_url", "").strip()
     shopify_access_token = data.get("shopify_access_token", "").strip()
     twilio_phone_number = data.get("twilio_phone_number", "").strip()
+    cod_form_pn_label = data.get("cod_form_pn_label", "").strip()
 
-    if not all([store_name, shopify_shop_url, shopify_access_token, twilio_phone_number]):
+    if not all(
+        [store_name, shopify_shop_url, shopify_access_token, twilio_phone_number]
+    ):
         return jsonify({"error": "All fields are required"}), 400
 
     current_user.store_name = store_name
     current_user.shopify_shop_url = shopify_shop_url
     current_user.shopify_access_token = shopify_access_token
     current_user.phone_number = twilio_phone_number
+    current_user.cod_form_pn_label = cod_form_pn_label
     db.session.commit()
     return jsonify({"message": "Shopify settings updated"})
 
@@ -571,7 +655,14 @@ def call_customer():
 
     try:
         # Call the user and get their response
-        call_sid = make_call(phone, store_name, order_value, user_email, order_id, current_user.phone_number)
+        call_sid = make_call(
+            phone,
+            store_name,
+            order_value,
+            user_email,
+            order_id,
+            current_user.phone_number,
+        )
 
         redis_key = f"call:{user_email}:{call_sid}"
 
@@ -591,7 +682,7 @@ def call_customer():
                     status_key, 86400, status
                 )  # Persist status
                 return jsonify({"status": status})
-            time.sleep(interval)
+            tm.sleep(interval)
             elapsed += interval
 
         # If no response within timeout, return an error
@@ -612,7 +703,7 @@ def voice():
     response.say(
         f"Bună ziua! Ați plasat recent o comandă pe {store_name}, pentru suma de {order_value} lei.  Puteți confirma comanda dvs.?",
         language="ro-RO",
-        voice='Google.ro-RO-Wavenet-B'
+        voice="Google.ro-RO-Wavenet-B",
     )
 
     process_url = (
@@ -628,7 +719,9 @@ def voice():
         method="POST",
     )
     gather.say(
-        "Spuneți 'Da' pentru confirmare sau 'Nu' pentru anulare.", language="ro-RO",voice='Google.ro-RO-Wavenet-B'
+        "Spuneți 'Da' pentru confirmare sau 'Nu' pentru anulare.",
+        language="ro-RO",
+        voice="Google.ro-RO-Wavenet-B",
     )
 
     return Response(str(response), mimetype="text/xml")
@@ -648,10 +741,9 @@ def process_response():
     response = VoiceResponse()
     status = None
     if "da" in user_response:
-        response.say("Ai spus 'Da'. Mulțumim!", language="ro-RO",voice='Google.ro-RO-Wavenet-B')
-        print(
-            f"De salvat 'da' pt numarul: {called_number}, cu comanda {order_id}"
-        )  # TODO: remove print
+        response.say(
+            "Ai spus 'Da'. Mulțumim!", language="ro-RO", voice="Google.ro-RO-Wavenet-B"
+        )
         user_element = get_user_by_email(user_email)
         if (
             user_element.shopify_shop_url != None
@@ -660,10 +752,9 @@ def process_response():
             process_draft_order(user_element, order_id, "confirm")
         status = "Confirmed"
     elif "nu" in user_response:
-        response.say("Ai spus 'Nu'. Înțeles!", language="ro-RO",voice='Google.ro-RO-Wavenet-B')
-        print(
-            f"De salvat 'nu' pt numarul: {called_number}, cu comanda {order_id}"
-        )  # TODO: remove print
+        response.say(
+            "Ai spus 'Nu'. Înțeles!", language="ro-RO", voice="Google.ro-RO-Wavenet-B"
+        )
         user_element = get_user_by_email(user_email)
         if (
             user_element.shopify_shop_url != None
@@ -689,7 +780,6 @@ def process_response():
 
 
 # SHOPIFY INTEGRATION
-
 def get_draft_order_by_name(user_element, draft_order_name):
     """
     Get a draft order by its name (e.g., #D1003)
@@ -720,6 +810,39 @@ def get_draft_order_by_name(user_element, draft_order_name):
     else:
         print(f"Failed to retrieve draft orders. Status code: {response.status_code}")
         return None
+
+
+def get_order_by_name(user_element, draft_order_name):
+    """
+    Get an order by its name (e.g., #1003)
+    """
+    # Remove the # if present and ensure it's in the right format
+    clean_name = draft_order_name.replace("#", "")
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": user_element.shopify_access_token,
+    }
+    # Get all orders
+    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
+    url = f"{base_url}/orders.json"
+    response = requests.get(url=url, headers=headers)
+
+    if response.status_code == 200:
+        orders = response.json()["orders"]
+
+    else:
+        print(f"Failed to retrieve orders. Status code: {response.status_code}")
+        return None
+
+    # Find the draft order with the matching name
+    for order in orders:
+        # Draft order names are usually in the format #D1003
+        if order["name"].replace("#", "") == clean_name:
+            return order
+
+    print(f"order {draft_order_name} not found.")
+    return None
 
 
 def complete_draft_order(user_element, draft_order_id):
@@ -808,16 +931,19 @@ def get_all_drafts(user_element):
         print(f"Failed to retrieve draft orders. Status code: {response.status_code}")
         return None
 
+
 def process_drafts(draft_orders):
-    drafts = []   
+    drafts = []
     for draft_order in draft_orders:
         if draft_order.get("status", "") != "open":
             continue
         if draft_order.get("tags", "") == "abandoned_checkout_releasit_cod_form":
-            order_details={}
-            order_details["total_price"]= draft_order.get("total_price", "")
+            order_details = {}
+            order_details["total_price"] = draft_order.get("total_price", "")
             order_details["order_name"] = draft_order.get("name", "")
-            order_details["created_at"] = format_datetime(draft_order.get("created_at", ""))
+            order_details["created_at"] = format_datetime(
+                draft_order.get("created_at", "")
+            )
 
             note_attributes = draft_order.get("note_attributes", "")
 
@@ -827,18 +953,398 @@ def process_drafts(draft_orders):
                         phone_number = note.get("value", "")
                     if note.get("name", "") == "Telefon":
                         phone_number = note.get("value", "")
-            else:            
+            else:
                 phone_number = ""
 
             order_details["phone_number"] = phone_number
-            
+
             drafts.append(order_details)
     return drafts
 
 
+def get_all_orders(user_element):
+    headers = {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": user_element.shopify_access_token,
+    }
+    # Get all draft orders
+    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
+    url = f"{base_url}/orders.json"
+    response = requests.get(url=url, headers=headers)
+
+    if response.status_code == 200:
+        orders = response.json()["orders"]
+
+        return orders
+    else:
+        print(f"Failed to retrieve orders. Status code: {response.status_code}")
+        return None
+
+
+def edit_order_note(user_element, order_id, note_text):
+    headers = {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": user_element.shopify_access_token,
+    }
+
+    json_data = {"order": {"id": order_id, "note": note_text}}
+    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
+    url = f"{base_url}/orders/{order_id}.json"
+    response = requests.put(url=url, headers=headers, json=json_data)
+
+    if response.status_code == 200:
+        return None
+    else:
+        print(
+            f"Failed to Edit Order Note. Status code: {response.status_code}, {response.text}"
+        )
+        return None
+
+
+def get_uncalled_leads(user_element):
+    orders = get_all_orders(user_element)
+
+    uncalled_orders = []
+    for order in orders:
+        if not is_within_24_hours(order["created_at"]):
+            break
+
+        if order["note"] == None or "called" not in order["note"]:
+            uncalled_orders.append(order)
+
+    return uncalled_orders[::-1]
+
+
+def call_all_uncalled_leads(user_element):
+    if not is_time_within_intervals([("09:00", "21:00")]):
+        print("Not within the working hours")
+        return
+
+    uncalled_leads = get_uncalled_leads(user_element)
+    if uncalled_leads == [] or uncalled_leads == None:
+        return
+
+    for ul in uncalled_leads:
+        print(f"Calling {ul['name']} ...")
+        phone_number = next(
+            item["value"]
+            for item in ul["note_attributes"]
+            if item["name"] == user_element.cod_form_pn_label
+        )
+        # Call the recently placed order
+        call_order(user_element, phone_number, ul["name"], ul["subtotal_price"])
+
+
+def scan_new_orders(user_element):
+    """
+    Runs user_function for a specific user every 2 minutes.
+    """
+    my_user = User(
+        id=user_element.id,
+        email=user_element.email,
+        name=user_element.name,
+        google_id=user_element.google_id,
+        subscription_status=user_element,
+        stripe_customer_id=user_element.stripe_customer_id,
+        picture=user_element.picture,
+        store_name=user_element.store_name,
+        shopify_shop_url=user_element.shopify_shop_url,
+        shopify_access_token=user_element.shopify_access_token,
+        phone_number=user_element.phone_number,
+        cod_form_pn_label=user_element.cod_form_pn_label,
+    )
+    thread = threading.Thread(target=call_all_uncalled_leads, args=(my_user,))
+    thread.start()
+    timer = threading.Timer(120, scan_new_orders, args=(my_user,))
+    timer.start()
+
+    if user_element.id not in user_timers:
+        user_timers[user_element.id] = {}
+
+    user_timers[user_element.id]["timer"] = timer
+
+
+@app.route("/start_timer", methods=["POST"])
+def start_timer():
+    """
+    Starts the 2-minute timer for a specific user.
+    """
+    if (
+        current_user.id not in user_timers
+        or user_timers[current_user.id]["timer"] is None
+    ):
+        scan_new_orders(current_user)
+        return jsonify({"message": f"Timer started for user {current_user.id}"}), 200
+    else:
+        return (
+            jsonify({"message": f"Timer already running for user {current_user.id}"}),
+            400,
+        )
+
+
+@app.route("/stop_timer", methods=["POST"])
+def stop_timer():
+    """
+    Stops the 2-minute timer for a specific user.
+    """
+    if current_user.id in user_timers and user_timers[current_user.id]["timer"]:
+        user_timers[current_user.id]["timer"].cancel()
+        user_timers[current_user.id]["timer"] = None
+        print("not returned error at STOP TIMER")
+        return jsonify({"message": f"Timer stopped for user {current_user.id}"}), 200
+    else:
+        print("returned error at STOP TIMER")
+        return (
+            jsonify({"message": f"Timer not running for user {current_user.id}"}),
+            400,
+        )
+
+
+def call_order(user_element, phone, order_name, order_value):
+    phone_number = format_phone_number(phone)
+    status_key = f"status:{user_element.email}:{phone_number}"
+
+    # Check if already processed
+    existing_status = (
+        value := app.config["SESSION_REDIS"].get(status_key)
+    ) and value.decode("utf-8")
+
+    if existing_status != "No Answer" and existing_status != None:
+        print(f"status: {existing_status}, SKIPPED")
+        return
+
+    try:
+        # Call the user and get their response
+        call_sid = make_call_2(
+            phone_number,
+            user_element.store_name,
+            order_value,
+            user_element.email,
+            order_name,
+            user_element.phone_number,
+        )
+
+        redis_key = f"call:{user_element.email}:{call_sid}"
+
+        # Wait for the response (poll the call_responses store)
+        timeout = 70  # Max wait time in seconds
+        elapsed = 0
+        interval = 1  # Check every second
+
+        while elapsed < timeout:
+            status = (
+                value := app.config["SESSION_REDIS"].get(redis_key)
+            ) and value.decode("utf-8")
+
+            if status:
+                app.config["SESSION_REDIS"].delete(redis_key)
+                app.config["SESSION_REDIS"].setex(status_key, 86400, status)
+                print(f"status {status} for call with sid: {call_sid}")
+                update = f"Called {phone_number}:order {order_name} :status {status}"
+                store_call_for_user(
+                    user_element.id, phone_number, order_name, status, 50, 172800
+                )
+                return
+            tm.sleep(interval)
+            elapsed += interval
+
+        print("ERROR: No response received within timeout")
+        return
+
+    except Exception as e:
+        print(f"ERROR: Call failed: {str(e)}")
+        return
+
+
+def make_call_2(
+    phone_number, store_name, order_value, user_email, order_id, from_number
+):
+    """Calls the customer and plays a Romanian voice message."""
+    call = twilio_client.calls.create(
+        to=phone_number,
+        from_=from_number,
+        url=f"http://37.27.108.19:9000/voice_2?store_name={quote(store_name)}&order_value={quote(str(order_value))}&user_email={quote(user_email)}&order_id={quote(str(order_id))}",
+    )
+
+    print(f"📞 Calling {phone_number} - Call SID: {call.sid}")
+    return call.sid
+
+
+@app.route("/voice_2", methods=["POST"])
+def voice_2():
+    store_name = request.args.get("store_name", "magazinul nostru")
+    order_value = request.args.get("order_value", "necunoscută")
+    user_email = request.args.get("user_email", "")
+    order_id = request.args.get("order_id", "")
+
+    response = VoiceResponse()
+    response.say(
+        f"Bună ziua! Ați plasat recent o comandă pe {store_name}, pentru suma de {order_value} lei.  Puteți confirma comanda dvs.?",
+        language="ro-RO",
+        voice="Google.ro-RO-Wavenet-B",
+    )
+
+    process_url = (
+        f"http://37.27.108.19:9000/process-response_2?"
+        f"user_email={quote(user_email)}&order_id={quote(order_id)}"
+    )
+
+    gather = response.gather(
+        input="speech",
+        language="ro-RO",
+        speechTimeout="auto",
+        action=process_url,
+        method="POST",
+    )
+    gather.say(
+        "Spuneți 'Da' pentru confirmare sau 'Nu' pentru anulare.",
+        language="ro-RO",
+        voice="Google.ro-RO-Wavenet-B",
+    )
+
+    return Response(str(response), mimetype="text/xml")
+
+
+@app.route("/process-response_2", methods=["POST"])
+def process_response_2():
+    """Processes the user's spoken response in Romanian."""
+    user_response = request.form.get("SpeechResult", "").strip().lower()
+    called_number = request.form.get("Called", "").strip()
+    call_sid = request.form.get("CallSid", "")
+    user_email = request.args.get("user_email", "")
+    order_id = request.args.get("order_id", "")
+
+    print(f"Utilizatorul a spus: {user_response}")
+
+    response = VoiceResponse()
+    status = None
+    if "da" in user_response:
+        response.say(
+            "Ai spus 'Da'. Mulțumim!", language="ro-RO", voice="Google.ro-RO-Wavenet-B"
+        )
+        user_element = get_user_by_email(user_email)
+        if (
+            user_element.shopify_shop_url != None
+            and user_element.shopify_access_token != None
+        ):
+            # change the note to "called: confirmed"
+            draft_order = get_order_by_name(user_element, order_id)
+
+            if not draft_order:
+                print(f"ERROR: cant get the order for order_id: {order_id}")
+                response.say(
+                    "Îmi pare rău, nu am înțeles. Te rog, spune 'Da' sau 'Nu'.",
+                    language="ro-RO",
+                )
+                status = "No Answer"
+                return Response(str(response), mimetype="text/xml")
+
+            draft_order_id = draft_order["id"]
+            edit_order_note(user_element, draft_order_id, "called: confirmed")
+        status = "Confirmed"
+    elif "nu" in user_response:
+        response.say(
+            "Ai spus 'Nu'. Înțeles!", language="ro-RO", voice="Google.ro-RO-Wavenet-B"
+        )
+        user_element = get_user_by_email(user_email)
+        if (
+            user_element.shopify_shop_url != None
+            and user_element.shopify_access_token != None
+        ):
+            # change the note to "called: declined"
+            draft_order = get_order_by_name(user_element, order_id)
+
+            if not draft_order:
+                print(f"ERROR: cant get the order for order_id: {order_id}")
+                response.say(
+                    "Îmi pare rău, nu am înțeles. Te rog, spune 'Da' sau 'Nu'.",
+                    language="ro-RO",
+                )
+                status = "No Answer"
+                return Response(str(response), mimetype="text/xml")
+
+            draft_order_id = draft_order["id"]
+            edit_order_note(user_element, draft_order_id, "called: declined")
+        status = "Declined"
+    else:
+        response.say(
+            "Îmi pare rău, nu am înțeles. Te rog, spune 'Da' sau 'Nu'.",
+            language="ro-RO",
+        )
+        status = "No Answer"
+
+    redis_key = f"call:{user_email}:{call_sid}"
+    status_key = f"status:{user_email}:{called_number}"
+    app.config["SESSION_REDIS"].setex(redis_key, 300, status)
+    app.config["SESSION_REDIS"].setex(
+        status_key, 86400, status
+    )  # Store status for 24 hours
+
+    return Response(str(response), mimetype="text/xml")
+
+
+@app.route("/get_users_timer", methods=["POST"])
+def get_users_timer():
+    try:
+        data = request.get_json()
+
+        user_id = data["user_id"]
+        try:
+            timer_value = user_timers[int(user_id)]["timer"]
+            if timer_value != None:
+                return jsonify({"message": f"Timer ON for {user_id}"}), 200
+            else:
+                return jsonify({"message": f"Timer OFF for {user_id}"}), 200
+        except:
+            print("there is no match for user_id in timers")
+            return jsonify({"message": f"Timer OFF for {user_id}"}), 200
+    except:
+        return jsonify({"error": "Cannot get the timer!"}), 400
+
+
+@app.route("/simulate_call", methods=["POST"])
+def simulate_call():
+    try:
+        data = request.get_json()
+
+        phone_number = data["phone_number"]
+        order_id = data["order_id"]
+        status = data["status"]
+        uid = data["uid"]
+        ttl = data["ttl"]
+
+        store_call_for_user(uid, phone_number, order_id, status, ttl_seconds=ttl)
+
+        return jsonify({"message": "update updated"}), 200
+    except Exception as e:
+        print(e)
+        return jsonify({"error": "Cannot sim call!"}), 400
+
+
+@app.route("/api/calls")
+@login_required
+def get_user_calls():
+    try:
+        user_id = current_user.id
+        key = f"user:{user_id}:calls"
+        raw_calls = redis_client.lrange(key, 0, 49)
+        calls = [
+            (
+                json.loads(call.decode("utf-8"))
+                if isinstance(call, bytes)
+                else json.loads(call)
+            )
+            for call in raw_calls
+        ]
+        # calls = [c.decode("utf-8") for c in redis_client.lrange(key, 0, 49)]
+        return jsonify(calls)
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify([])
+
 
 if __name__ == "__main__":
     with app.app_context():
-        db.create_all()  # Ensure DB is initialized
+        db.create_all()
 
-    app.run(host="0.0.0.0", port=9000, debug=False)
+    app.run(host="0.0.0.0", port=9000, debug=True, threaded=True)

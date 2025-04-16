@@ -18,3 +18,4 @@ class User(db.Model, UserMixin):
     shopify_shop_url = db.Column(db.String(255))
     shopify_access_token = db.Column(db.String(255))
     phone_number = db.Column(db.String(20))
+    cod_form_pn_label = db.Column(db.String(255), default="Phone number")
