@@ -203,34 +203,6 @@
             border: 1px solid #ddd;
         }
 
-        .store-name-container {
-            max-width: 400px;
-            margin: 20px auto;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        #store-name-input {
-            padding: 5px;
-            font-size: 1em;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-
-        #save-store-name-btn {
-            padding: 5px 10px;
-            font-size: 1em;
-            background-color: #004D98;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-
-        #save-store-name-btn:hover {
-            background-color: #0056b3;
-        }
 
         .modal {
             display: none;
@@ -261,7 +233,6 @@
 
         .close-btn {
             color: #aaa;
-            float: right;
             font-size: 28px;
             font-weight: bold;
             border: none;
@@ -271,6 +242,14 @@
             position: absolute;
             top: 10px;
             right: 15px;
+            width: 30px;
+            height: 30px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            box-sizing: content-box;
         }
 
         .close-btn:hover,
@@ -282,6 +261,7 @@
 
         .form-group {
             margin-bottom: 15px;
+            width: 100%;
         }
 
         label {
@@ -298,8 +278,25 @@
             box-sizing: border-box;
         }
 
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .help-text {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 0.9em;
+        }
+
         .modal-content button {
-            background-color: #4CAF50;
+            background-color: #EDBB00;
             color: white;
             padding: 12px 20px;
             border: none;
@@ -308,8 +305,151 @@
             width: 100%;
         }
 
-        .modal-content button:hover {
-            background-color: #45a049;
+        /* Override modal button styles for close button */
+        .modal-content .close-btn {
+            all: unset;
+            /* Reset all styles */
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            width: 30px !important;
+            height: 30px;
+            font-size: 28px;
+            color: #aaa;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: none !important;
+            border: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .modal-content .close-btn:hover {
+            color: black;
+            background: none !important;
+        }
+
+        /* Calls Section Styling */
+        .calls-section {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.1);
+            margin: 20px auto;
+            padding: 20px;
+            width: 80%;
+        }
+
+        .calls-header {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .service-status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-pulse {
+            display: inline-block;
+            font-size: 20px;
+            color: #004D98;
+            margin-right: 5px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(0.95);
+                text-shadow: 0 0 0 rgba(0, 77, 152, 0.7);
+            }
+
+            70% {
+                transform: scale(1);
+                text-shadow: 0 0 10px rgba(0, 77, 152, 0.4);
+            }
+
+            100% {
+                transform: scale(0.95);
+                text-shadow: 0 0 0 rgba(0, 77, 152, 0);
+            }
+        }
+
+        .status-toggle {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: white;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+
+        .status-toggle.on {
+            background-color: #004D98;
+        }
+
+        .status-toggle.on:hover {
+            background-color: #0056b3;
+        }
+
+        .status-toggle.off {
+            background-color: #A50044;
+        }
+
+        .status-toggle.off:hover {
+            background-color: #810136;
+        }
+
+        .calls-content {
+            margin-top: 20px;
+        }
+
+        .calls-table-container {
+            overflow-x: auto;
+        }
+
+        #calls-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        #calls-table th,
+        #calls-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        #calls-table th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+            color: #333;
+        }
+
+        #calls-table tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        #calls-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        #modal-title {
+            margin-top: 0;
+            margin-bottom: 20px;
+            padding-right: 30px;
+            /* Add padding to prevent title from overlapping with close button */
         }
     </style>
     <script>
@@ -357,6 +497,7 @@
                         row.innerHTML = `
                     <td>${customer.phone_number || ""}</td>
                     <td>${customer.order_name || ""}</td>
+                    <td>${customer.item_name || ""}</td>
                     <td>${customer.total_price || ""}</td>
                     <td>${customer.created_at || ""}</td>
                     <td><span class="status ${statusClass}">${customer.status}</span></td>
@@ -395,7 +536,6 @@
             const rows = tableBody.getElementsByTagName("tr");
             const button = document.getElementById("call-btn");
             const stopButton = document.getElementById("stop-calling-btn");
-            const storeName = document.getElementById("store-name-input").value.trim() || "Magazinul Nostru";
 
             isCalling = true;
             stopButton.disabled = false;
@@ -422,10 +562,10 @@
 
                 const customer = {
                     phone: cells[0].textContent,
-                    status: cells[4].textContent,
-                    store_name: storeName,
-                    order_value: cells[2].textContent,
-                    order_id: cells[1].textContent
+                    status: cells[5].textContent,
+                    order_value: cells[3].textContent,
+                    order_id: cells[1].textContent,
+                    item_name: cells[2].textContent
                 };
                 cells[4].innerHTML = `<span class="status status-pending">Calling...</span>`;
                 try {
@@ -468,35 +608,6 @@
             stopButton.disabled = true; // Disable stop button immediately
         }
 
-
-        function saveStoreName() {
-            const storeName = document.getElementById("store-name-input").value.trim();
-            if (!storeName) {
-                alert("Store name cannot be empty");
-                return;
-            }
-
-            fetch("/update_store_name", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ store_name: storeName })
-            })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.error) {
-                        alert(result.error);
-                    } else {
-                        alert("Store name saved successfully!");
-                    }
-                })
-                .catch(error => {
-                    console.error("Error saving store name:", error);
-                    alert("Failed to save store name");
-                });
-        }
-
-
-
     </script>
 </head>
 
@@ -514,12 +625,6 @@
         </div>
     </div>
 
-    <!-- Store Name Input (outside modal for quick access) -->
-    <div class="store-name-container">
-        <label for="store-name-input">Store Name:</label>
-        <input type="text" id="store-name-input" value="{{ store_name }}" placeholder="Enter store name">
-        <button id="save-store-name-btn" onclick="saveStoreName()">Save</button>
-    </div>
 
     <div class="container">
         <div class="input-container">
@@ -533,6 +638,7 @@
                 <tr>
                     <th>Phone Number</th>
                     <th>Order Name</th>
+                    <th>Product Name</th>
                     <th>Total Price</th>
                     <th>Created At</th>
                     <th>Status</th>
@@ -553,37 +659,44 @@
 
     </div>
 
-    <!-- Auto dialling service status-->
-    <div id="calling-status">
-        Calling Service is: <span id="status-text"></span>
-        <button id="toggleBtn"></button>
+    <!-- Calls Section -->
+    <div class="calls-section">
+        <div class="calls-header">
+            <div class="service-status">
+                <h3>Auto Dialing Service</h3>
+                <div class="status-indicator">
+                    <span>Status: </span>
+                    <span id="status-text"></span>
+                    <button id="toggleBtn" class="status-toggle"></button>
+                </div>
+            </div>
+        </div>
+
+        <div class="calls-content">
+            <h3>Recent Calls</h3>
+            <div class="calls-table-container">
+                <table id="calls-table">
+                    <thead>
+                        <tr>
+                            <th>Phone</th>
+                            <th>Order ID</th>
+                            <th>Status</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody id="calls-body"></tbody>
+                </table>
+            </div>
+        </div>
     </div>
-
-    <h2>Recent Calls</h2>
-    <table id="calls-table" border="1" cellpadding="8" cellspacing="0" style="width: 100%; text-align: left;">
-        <thead>
-            <tr>
-                <th>Phone</th>
-                <th>Order ID</th>
-                <th>Status</th>
-                <th>Timestamp</th>
-            </tr>
-        </thead>
-        <tbody id="calls-body"></tbody>
-    </table>
-
 
     <!-- Settings Modal -->
     <div id="settings-modal" class="modal" role="dialog" aria-labelledby="modal-title" aria-modal="true">
+
         <div class="modal-content">
             <button class="close-btn" aria-label="Close settings modal" onclick="closeSettingsModal()">×</button>
             <h3 id="modal-title">Shopify Settings</h3>
             <form id="shopify-settings-form">
-                <div class="form-group">
-                    <label for="modal-store-name">Store Name:</label>
-                    <input type="text" id="modal-store-name" value="{{ current_user.store_name or 'Magazinul Meu' }}"
-                        placeholder="e.g., My Store">
-                </div>
                 <div class="form-group">
                     <label for="shopify-shop-url">Shopify Shop URL:</label>
                     <input type="text" id="shopify-shop-url" value="{{ current_user.shopify_shop_url or '' }}"
@@ -598,12 +711,26 @@
                     <label for="twilio_phone_number">Phone Number:</label>
                     <input type="text" id="twilio_phone_number" value="{{ current_user.phone_number or '' }}"
                         placeholder="Enter your phone number">
+                    <small class="help-text">The phone number that will dial the calls.</small>
                 </div>
                 <div class="form-group">
-                    <label for="cod_form_pn_label">COD Form Phone Number Label:</label>
-                    <input type="text" id="cod_form_pn_label"
-                        value="{{ current_user.cod_form_pn_label or 'Phone Number / Telefon' }}"
-                        placeholder="Enter your COD Form Phone Number Label">
+                    <label for="working_hours">Working Hours:</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="time" id="working_hours_start"
+                            value="{{ current_user.working_hours_start or '09:00' }}" style="width: 120px;">
+                        <span>to</span>
+                        <input type="time" id="working_hours_end"
+                            value="{{ current_user.working_hours_end or '17:00' }}" style="width: 120px;">
+                    </div>
+                    <small class="help-text">Set the time interval during which calls will be made (24-hour
+                        format)</small>
+                </div>
+                <div class="form-group">
+                    <label for="voice_message">Custom Voice Message:</label>
+                    <textarea id="voice_message" rows="4"
+                        placeholder="Enter your custom voice message. Use {order_value} as a placeholder for the order amount. Use {item_name} as a placeholder for the item's name.">{{ current_user.voice_message or 'Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dvs.?' }}</textarea>
+                    <small class="help-text">Use {order_value} as a placeholder for the order amount.</small>
+                    <small class="help-text">Use {item_name} as a placeholder for the item's name.</small>
                 </div>
                 <button type="button" onclick="saveShopifySettings()">Save Settings</button>
             </form>
@@ -620,13 +747,14 @@
         }
 
         function saveShopifySettings() {
-            const storeName = document.getElementById("modal-store-name").value.trim();
             const shopifyShopUrl = document.getElementById("shopify-shop-url").value.trim();
             const shopifyAccessToken = document.getElementById("shopify-access-token").value.trim();
             const twilioPhoneNumber = document.getElementById("twilio_phone_number").value.trim();
-            const codFormPNLabel = document.getElementById("cod_form_pn_label").value.trim();
+            const workingHoursStart = document.getElementById("working_hours_start").value.trim();
+            const workingHoursEnd = document.getElementById("working_hours_end").value.trim();
+            const voiceMessage = document.getElementById("voice_message").value.trim();
 
-            if (!storeName || !shopifyShopUrl || !shopifyAccessToken || !twilioPhoneNumber) {
+            if (!shopifyShopUrl || !shopifyAccessToken || !twilioPhoneNumber) {
                 alert("All fields are required!");
                 return;
             }
@@ -635,11 +763,12 @@
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    store_name: storeName,
                     shopify_shop_url: shopifyShopUrl,
                     shopify_access_token: shopifyAccessToken,
                     twilio_phone_number: twilioPhoneNumber,
-                    cod_form_pn_label: codFormPNLabel,
+                    working_hours_start: workingHoursStart,
+                    working_hours_end: workingHoursEnd,
+                    voice_message: voiceMessage
                 })
             })
                 .then(response => response.json())
@@ -648,7 +777,6 @@
                         alert(result.error);
                     } else {
                         alert("Shopify settings saved successfully!");
-                        document.getElementById("store-name-input").value = storeName; // Sync with top input
                         closeSettingsModal();
                     }
                 })
@@ -682,11 +810,13 @@
 
         function updateButtonAndText() {
             if (isCallingOn) {
-                statusText.textContent = 'ON';
+                statusText.innerHTML = '<i class="fas fa-phone-alt status-pulse"></i> ON';
                 toggleBtn.textContent = 'Turn OFF Calling';
+                toggleBtn.className = 'status-toggle off';
             } else {
                 statusText.textContent = 'OFF';
                 toggleBtn.textContent = 'Turn ON Calling';
+                toggleBtn.className = 'status-toggle on';
             }
         }
 

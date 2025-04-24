@@ -70,7 +70,6 @@ login_manager.login_view = "login"
 
 # STRIPE
 stripe.api_key = Config.STRIPE_SECRET_KEY
-STRIPE_WEBHOOK_SECRET = "whsec_OrOg0j60jZoApAgV0jlSBRNtX5zBah2n"
 
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 discovery_doc = requests.get(GOOGLE_DISCOVERY_URL).json()
@@ -104,7 +103,7 @@ def store_call_for_user(
         "phone": phone,
         "order_id": order_id,
         "status": status,
-        "timestamp": tm.strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": tm.strftime("%Y-%m-%d %H:%M"),
     }
 
     redis_client.lpush(key, json.dumps(call_data))
@@ -164,6 +163,21 @@ def format_phone_number(phone):
     elif len(digits) == 12 and digits.startswith("40"):
         return f"+4{digits[2:]}"
     return None  # Invalid format
+
+
+def extract_phone_number(note_attributes):
+    phone_pattern = re.compile(
+        r"(\+?\d{1,3}[-.\s]?)?(\(?\d{2,4}\)?[-.\s]?)?(\d{3,4}[-.\s]?\d{3,4})"
+    )
+
+    for item in note_attributes:
+        value = item.get("value", "")
+        if phone_pattern.fullmatch(
+            value.replace(" ", "").replace("-", "").replace(".", "")
+        ):
+            return value
+
+    return None  # Return None if no phone number found
 
 
 def clean_order_list(order_list):
@@ -345,7 +359,6 @@ def callback():
             email=user_info["email"],
             subscription_status="inactive",  # Default to inactive
             picture=user_info["picture"],
-            store_name="Magazinul Nostru",
         )
         db.session.add(user)
     else:
@@ -382,7 +395,6 @@ def dashboard():
         "dashboard.html",
         profile_picture=profile_picture,
         name=current_user.name,
-        store_name=current_user.store_name,
         is_calling_on=is_calling_on,
     )
 
@@ -469,7 +481,7 @@ def stripe_webhook():
 
     try:
         event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
+            payload, sig_header, Config.STRIPE_WEBHOOK_SECRET
         )
     except ValueError:
         return "Invalid payload", 400
@@ -488,57 +500,6 @@ def stripe_webhook():
     return jsonify(success=True), 200
 
 
-@app.route("/fetch_sheet", methods=["POST"])
-def fetch_sheet():
-    if "user" not in session:
-        return jsonify({"error": "User not authenticated"}), 401
-
-    sheet_url = request.form.get("sheet_url")
-    raw_data = read_google_sheet(sheet_url)
-
-    if not raw_data:
-        print("NO DATA FROM THE SHEETS API")
-        return jsonify({"error": "No data found"}), 400
-
-    # Manually map fields (adjust according to actual data structure)
-    headers = [
-        "date",
-        "name",
-        "phone",
-        "address",
-        "city",
-        "item",
-        "order_value",
-        "discount",
-        "order_id",
-    ]
-
-    data = [dict(zip(headers, row)) for row in raw_data]  # Convert each row int
-
-    user_email = session["user"]["email"]
-    enriched_data = []
-    for customer in data:
-        if customer == {}:
-            continue
-        try:
-            customer["phone"] = format_phone_number(customer["phone"])
-            status_key = f"status:{user_email}:{customer['phone']}"
-            status = (
-                (value := app.config["SESSION_REDIS"].get(status_key))
-                and value.decode("utf-8")
-                or "⏳"
-            )
-            customer["status"] = status
-            enriched_data.append(customer)
-        except Exception as e:
-            print(f"Error at fetcing leads: {e}")
-            pass
-
-    cleaned_data = clean_order_list(enriched_data)
-
-    return jsonify({"data": cleaned_data})
-
-
 @app.route("/get_draft_orders", methods=["GET"])
 def get_draft_orders():
     if "user" not in session:
@@ -551,6 +512,8 @@ def get_draft_orders():
     enriched_data = []
     for customer in proc_drafts:
         if customer == {}:
+            continue
+        if customer["phone_number"] == "" or customer["phone_number"] == None:
             continue
         try:
             customer["phone_number"] = format_phone_number(customer["phone_number"])
@@ -571,43 +534,37 @@ def get_draft_orders():
     return jsonify({"data": enriched_data})
 
 
-@app.route("/update_store_name", methods=["POST"])
-def update_store_name():
-    if "user" not in session or not current_user.is_authenticated:
-        return jsonify({"error": "User not authenticated"}), 401
-
-    data = request.get_json()
-    store_name = data.get("store_name", "").strip()
-    if not store_name:
-        return jsonify({"error": "Store name cannot be empty"}), 400
-
-    current_user.store_name = store_name
-    db.session.commit()
-    return jsonify({"message": "Store name updated", "store_name": store_name})
-
-
 @app.route("/update_settings", methods=["POST"])
 def update_shopify_settings():
     if "user" not in session or not current_user.is_authenticated:
         return jsonify({"error": "User not authenticated"}), 401
 
     data = request.get_json()
-    store_name = data.get("store_name", "").strip()
     shopify_shop_url = data.get("shopify_shop_url", "").strip()
     shopify_access_token = data.get("shopify_access_token", "").strip()
     twilio_phone_number = data.get("twilio_phone_number", "").strip()
-    cod_form_pn_label = data.get("cod_form_pn_label", "").strip()
+    working_hours_start = data.get("working_hours_start", "").strip()
+    working_hours_end = data.get("working_hours_end", "").strip()
+    voice_message = data.get("voice_message", "").strip()
 
-    if not all(
-        [store_name, shopify_shop_url, shopify_access_token, twilio_phone_number]
-    ):
+    if not all([shopify_shop_url, shopify_access_token, twilio_phone_number]):
         return jsonify({"error": "All fields are required"}), 400
 
-    current_user.store_name = store_name
+    # Validate working hours format
+    try:
+        if working_hours_start and working_hours_end:
+            # Convert to datetime objects to validate format
+            datetime.strptime(working_hours_start, "%H:%M")
+            datetime.strptime(working_hours_end, "%H:%M")
+    except ValueError:
+        return jsonify({"error": "Invalid time format. Please use HH:MM format"}), 400
+
     current_user.shopify_shop_url = shopify_shop_url
     current_user.shopify_access_token = shopify_access_token
     current_user.phone_number = twilio_phone_number
-    current_user.cod_form_pn_label = cod_form_pn_label
+    current_user.working_hours_start = working_hours_start
+    current_user.working_hours_end = working_hours_end
+    current_user.voice_message = voice_message
     db.session.commit()
     return jsonify({"message": "Shopify settings updated"})
 
@@ -617,12 +574,12 @@ twilio_client = Client(Config.TWILIO_ACCOUNT_SID, Config.TWILIO_AUTH_TOKEN)
 call_responses = {}
 
 
-def make_call(phone_number, store_name, order_value, user_email, order_id, from_number):
+def make_call(phone_number, order_value, item_name, user_email, order_id, from_number):
     """Calls the customer and plays a Romanian voice message."""
     call = twilio_client.calls.create(
         to=phone_number,
         from_=from_number,
-        url=f"http://37.27.108.19:9000/voice?store_name={quote(store_name)}&order_value={quote(str(order_value))}&user_email={quote(user_email)}&order_id={quote(str(order_id))}",
+        url=f"http://37.27.108.19:9000/voice?order_value={quote(str(order_value))}&item_name={quote(item_name)}&user_email={quote(user_email)}&order_id={quote(str(order_id))}",
     )
 
     print(f"📞 Calling {phone_number} - Call SID: {call.sid}")
@@ -639,9 +596,9 @@ def call_customer():
         return jsonify({"error": "No phone number provided"}), 400
 
     phone = data["phone"]
-    store_name = data.get("store_name", "magazinul nostru")
     order_value = data.get("order_value", "necunoscută")
     order_id = data.get("order_id", "")
+    item_name = data.get("item_name", "")
     user_email = session["user"]["email"]
     status_key = f"status:{user_email}:{phone}"
 
@@ -657,8 +614,8 @@ def call_customer():
         # Call the user and get their response
         call_sid = make_call(
             phone,
-            store_name,
             order_value,
+            item_name,
             user_email,
             order_id,
             current_user.phone_number,
@@ -694,14 +651,27 @@ def call_customer():
 
 @app.route("/voice", methods=["POST"])
 def voice():
-    store_name = request.args.get("store_name", "magazinul nostru")
     order_value = request.args.get("order_value", "necunoscută")
     user_email = request.args.get("user_email", "")
     order_id = request.args.get("order_id", "")
+    item_name = request.args.get("item_name", "")
+
+    # Get the user's custom message or use default
+    user = get_user_by_email(user_email)
+    custom_message = (
+        user.voice_message
+        if user and user.voice_message
+        else "Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dvs.?"
+    )
+
+    # Format the message with the actual values
+    formatted_message = custom_message.format(
+        order_value=order_value, item_name=item_name
+    )
 
     response = VoiceResponse()
     response.say(
-        f"Bună ziua! Ați plasat recent o comandă pe {store_name}, pentru suma de {order_value} lei.  Puteți confirma comanda dvs.?",
+        formatted_message,
         language="ro-RO",
         voice="Google.ro-RO-Wavenet-B",
     )
@@ -941,18 +911,19 @@ def process_drafts(draft_orders):
             order_details = {}
             order_details["total_price"] = draft_order.get("total_price", "")
             order_details["order_name"] = draft_order.get("name", "")
+            try:
+                order_details["item_name"] = draft_order["line_items"][0]["name"]
+            except:
+                order_details["item_name"] = ""
             order_details["created_at"] = format_datetime(
                 draft_order.get("created_at", "")
             )
 
             note_attributes = draft_order.get("note_attributes", "")
 
-            if note_attributes != "":
-                for note in note_attributes:
-                    if note.get("name", "") == "Phone number":
-                        phone_number = note.get("value", "")
-                    if note.get("name", "") == "Telefon":
-                        phone_number = note.get("value", "")
+            if note_attributes != "" and note_attributes != []:
+                phone_number = extract_phone_number(note_attributes)
+                print(f"WE GOT PHONE NUMBER: {phone_number}")
             else:
                 phone_number = ""
 
@@ -1010,13 +981,16 @@ def get_uncalled_leads(user_element):
             break
 
         if order["note"] == None or "called" not in order["note"]:
-            uncalled_orders.append(order)
+            if order.get("tags", "") == "releasit_cod_form":
+                uncalled_orders.append(order)
 
     return uncalled_orders[::-1]
 
 
 def call_all_uncalled_leads(user_element):
-    if not is_time_within_intervals([("09:00", "21:00")]):
+    if not is_time_within_intervals(
+        [(user_element.working_hours_start, user_element.working_hours_end)]
+    ):  # checks if we are within the working hours, else dont make the call
         print("Not within the working hours")
         return
 
@@ -1025,14 +999,21 @@ def call_all_uncalled_leads(user_element):
         return
 
     for ul in uncalled_leads:
-        print(f"Calling {ul['name']} ...")
-        phone_number = next(
-            item["value"]
-            for item in ul["note_attributes"]
-            if item["name"] == user_element.cod_form_pn_label
-        )
-        # Call the recently placed order
-        call_order(user_element, phone_number, ul["name"], ul["subtotal_price"])
+        try:
+            print(f"Calling order {ul['name']} ...")
+            phone_number = extract_phone_number(ul.get("note_attributes", []))
+            if phone_number == None:
+                continue
+            # Call the recently placed order
+            call_order(
+                user_element,
+                phone_number,
+                ul["name"],
+                ul["subtotal_price"],
+                ul["line_items"][0]["name"],
+            )
+        except Exception as e:
+            print(f"Error at calling lead (call_all_uncalled_leads): {e}")
 
 
 def scan_new_orders(user_element):
@@ -1047,11 +1028,12 @@ def scan_new_orders(user_element):
         subscription_status=user_element,
         stripe_customer_id=user_element.stripe_customer_id,
         picture=user_element.picture,
-        store_name=user_element.store_name,
         shopify_shop_url=user_element.shopify_shop_url,
         shopify_access_token=user_element.shopify_access_token,
         phone_number=user_element.phone_number,
-        cod_form_pn_label=user_element.cod_form_pn_label,
+        working_hours_start=user_element.working_hours_start,
+        working_hours_end=user_element.working_hours_end,
+        voice_message=user_element.voice_message,
     )
     thread = threading.Thread(target=call_all_uncalled_leads, args=(my_user,))
     thread.start()
@@ -1100,7 +1082,7 @@ def stop_timer():
         )
 
 
-def call_order(user_element, phone, order_name, order_value):
+def call_order(user_element, phone, order_name, order_value, item_name):
     phone_number = format_phone_number(phone)
     status_key = f"status:{user_element.email}:{phone_number}"
 
@@ -1117,8 +1099,8 @@ def call_order(user_element, phone, order_name, order_value):
         # Call the user and get their response
         call_sid = make_call_2(
             phone_number,
-            user_element.store_name,
             order_value,
+            item_name,
             user_element.email,
             order_name,
             user_element.phone_number,
@@ -1157,13 +1139,13 @@ def call_order(user_element, phone, order_name, order_value):
 
 
 def make_call_2(
-    phone_number, store_name, order_value, user_email, order_id, from_number
+    phone_number, order_value, item_name, user_email, order_id, from_number
 ):
     """Calls the customer and plays a Romanian voice message."""
     call = twilio_client.calls.create(
         to=phone_number,
         from_=from_number,
-        url=f"http://37.27.108.19:9000/voice_2?store_name={quote(store_name)}&order_value={quote(str(order_value))}&user_email={quote(user_email)}&order_id={quote(str(order_id))}",
+        url=f"http://37.27.108.19:9000/voice_2?order_value={quote(str(order_value))}&item_name={quote(item_name)}&user_email={quote(user_email)}&order_id={quote(str(order_id))}",
     )
 
     print(f"📞 Calling {phone_number} - Call SID: {call.sid}")
@@ -1172,14 +1154,27 @@ def make_call_2(
 
 @app.route("/voice_2", methods=["POST"])
 def voice_2():
-    store_name = request.args.get("store_name", "magazinul nostru")
     order_value = request.args.get("order_value", "necunoscută")
+    item_name = request.args.get("item_name", "Nume produs")
     user_email = request.args.get("user_email", "")
     order_id = request.args.get("order_id", "")
 
+    # Get the user's custom message or use default
+    user = get_user_by_email(user_email)
+    custom_message = (
+        user.voice_message
+        if user and user.voice_message
+        else "Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dvs.?"
+    )
+
+    # Format the message with the actual values
+    formatted_message = custom_message.format(
+        order_value=order_value, item_name=item_name
+    )
+
     response = VoiceResponse()
     response.say(
-        f"Bună ziua! Ați plasat recent o comandă pe {store_name}, pentru suma de {order_value} lei.  Puteți confirma comanda dvs.?",
+        formatted_message,
         language="ro-RO",
         voice="Google.ro-RO-Wavenet-B",
     )
@@ -1228,9 +1223,9 @@ def process_response_2():
             and user_element.shopify_access_token != None
         ):
             # change the note to "called: confirmed"
-            draft_order = get_order_by_name(user_element, order_id)
+            order = get_order_by_name(user_element, order_id)
 
-            if not draft_order:
+            if not order:
                 print(f"ERROR: cant get the order for order_id: {order_id}")
                 response.say(
                     "Îmi pare rău, nu am înțeles. Te rog, spune 'Da' sau 'Nu'.",
@@ -1239,8 +1234,8 @@ def process_response_2():
                 status = "No Answer"
                 return Response(str(response), mimetype="text/xml")
 
-            draft_order_id = draft_order["id"]
-            edit_order_note(user_element, draft_order_id, "called: confirmed")
+            selected_order_id = order["id"]
+            edit_order_note(user_element, selected_order_id, "called: confirmed")
         status = "Confirmed"
     elif "nu" in user_response:
         response.say(
@@ -1252,9 +1247,9 @@ def process_response_2():
             and user_element.shopify_access_token != None
         ):
             # change the note to "called: declined"
-            draft_order = get_order_by_name(user_element, order_id)
+            order = get_order_by_name(user_element, order_id)
 
-            if not draft_order:
+            if not order:
                 print(f"ERROR: cant get the order for order_id: {order_id}")
                 response.say(
                     "Îmi pare rău, nu am înțeles. Te rog, spune 'Da' sau 'Nu'.",
@@ -1263,8 +1258,8 @@ def process_response_2():
                 status = "No Answer"
                 return Response(str(response), mimetype="text/xml")
 
-            draft_order_id = draft_order["id"]
-            edit_order_note(user_element, draft_order_id, "called: declined")
+            selected_order_id = order["id"]
+            edit_order_note(user_element, selected_order_id, "called: declined")
         status = "Declined"
     else:
         response.say(

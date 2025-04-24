@@ -14,8 +14,12 @@ class User(db.Model, UserMixin):
     )  # active/inactive
     stripe_customer_id = db.Column(db.String(255), unique=True, nullable=True)
     picture = db.Column(db.String(255), nullable=True)
-    store_name = db.Column(db.String(100), default="Magazinul Nostru")
     shopify_shop_url = db.Column(db.String(255))
     shopify_access_token = db.Column(db.String(255))
     phone_number = db.Column(db.String(20))
-    cod_form_pn_label = db.Column(db.String(255), default="Phone number")
+    working_hours_start = db.Column(db.String(5), default="09:00")  # Format: HH:MM
+    working_hours_end = db.Column(db.String(5), default="17:00")  # Format: HH:MM
+    voice_message = db.Column(
+        db.String(500),
+        default="Bună ziua! Ați plasat recent o comandă pentru suma de {order_value} lei. Puteți confirma comanda dvs.?",
+    )

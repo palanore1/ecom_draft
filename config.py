@@ -13,6 +13,7 @@ class Config:
     )
     STRIPE_PUBLIC_KEY = os.getenv("STRIPE_PUBLIC_KEY")
     STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
     SQLALCHEMY_DATABASE_URI = "sqlite:///users.db"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     GOOGLE_OAUTH_SCOPES = ["openid", "email", "profile"]
