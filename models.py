@@ -21,5 +21,10 @@ class User(db.Model, UserMixin):
     working_hours_end = db.Column(db.String(5), default="17:00")  # Format: HH:MM
     voice_message = db.Column(
         db.String(500),
-        default="Bună ziua! Ați plasat recent o comandă pentru suma de {order_value} lei. Puteți confirma comanda dvs.?",
+        default="Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dumneavoastră?",
     )
+    voice_message_draft = db.Column(
+        db.String(500),
+        default="Bună ziua! Ați încercat recent să plasați o comandă pe magazinul nostru pentru suma de {order_value} lei. Doriți să confirmați comanda dumneavoastră?",
+    )
+    agent_gender = db.Column(db.String(2), default="f")

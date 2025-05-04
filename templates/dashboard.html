@@ -569,7 +569,7 @@
                 };
                 cells[4].innerHTML = `<span class="status status-pending">Calling...</span>`;
                 try {
-                    const response = await fetch("/call_customer", {
+                    const response = await fetch("/call_draft", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify(customer)
@@ -659,6 +659,17 @@
 
     </div>
 
+    <!-- Outbound Call Box -->
+    <div class="container">
+        <h3>Make Demo Call</h3>
+        <div class="input-container">
+            <input type="text" id="outbound-phone" placeholder="Enter phone number to call (07...)"
+                style="width: 300px;">
+            <button class="action-btn start-call-btn" id="outbound-call-btn" onclick="makeOutboundCall()">Make
+                Call</button>
+        </div>
+    </div>
+
     <!-- Calls Section -->
     <div class="calls-section">
         <div class="calls-header">
@@ -726,11 +737,27 @@
                         format)</small>
                 </div>
                 <div class="form-group">
-                    <label for="voice_message">Custom Voice Message:</label>
+                    <label for="voice_message">Custom Voice Message for ORDERS:</label>
                     <textarea id="voice_message" rows="4"
                         placeholder="Enter your custom voice message. Use {order_value} as a placeholder for the order amount. Use {item_name} as a placeholder for the item's name.">{{ current_user.voice_message or 'Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dvs.?' }}</textarea>
+                </div>
+                <div class="form-group">
+                    <label for="voice_message_draft">Custom Voice Message for DRAFTS:</label>
+                    <textarea id="voice_message_draft" rows="4"
+                        placeholder="Enter your custom voice message for draft orders.">{{ current_user.voice_message_draft or 'no saved message' }}</textarea>
                     <small class="help-text">Use {order_value} as a placeholder for the order amount.</small>
                     <small class="help-text">Use {item_name} as a placeholder for the item's name.</small>
+                </div>
+                <div class="form-group">
+                    <label for="voice_gender">Voice Gender:</label>
+                    <select id="voice_gender"
+                        style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
+                        <option value="m" {% if current_user.agent_gender=='m' %}selected{% endif %}>Male Voice
+                        </option>
+                        <option value="f" {% if current_user.agent_gender=='f' %}selected{% endif %}>Female
+                            Voice</option>
+                    </select>
+                    <small class="help-text">Select the gender of the voice that will make the calls.</small>
                 </div>
                 <button type="button" onclick="saveShopifySettings()">Save Settings</button>
             </form>
@@ -753,6 +780,8 @@
             const workingHoursStart = document.getElementById("working_hours_start").value.trim();
             const workingHoursEnd = document.getElementById("working_hours_end").value.trim();
             const voiceMessage = document.getElementById("voice_message").value.trim();
+            const voiceMessageDraft = document.getElementById("voice_message_draft").value.trim();
+            const voiceGender = document.getElementById("voice_gender").value.trim();
 
             if (!shopifyShopUrl || !shopifyAccessToken || !twilioPhoneNumber) {
                 alert("All fields are required!");
@@ -768,7 +797,9 @@
                     twilio_phone_number: twilioPhoneNumber,
                     working_hours_start: workingHoursStart,
                     working_hours_end: workingHoursEnd,
-                    voice_message: voiceMessage
+                    voice_message: voiceMessage,
+                    voice_message_draft: voiceMessageDraft,
+                    voice_gender: voiceGender
                 })
             })
                 .then(response => response.json())
@@ -871,6 +902,43 @@
 
         setInterval(fetchCalls, 5000);
         fetchCalls();
+
+        async function makeOutboundCall() {
+            const phoneNumber = document.getElementById('outbound-phone').value.trim();
+            if (!phoneNumber) {
+                alert('Please enter a phone number');
+                return;
+            }
+
+            const button = document.getElementById('outbound-call-btn');
+            button.disabled = true;
+            button.textContent = 'Calling...';
+
+            try {
+                const response = await fetch('/demo-call', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        to_phone_number: phoneNumber
+                    })
+                });
+
+                const result = await response.json();
+                if (result.error) {
+                    alert('Error: ' + result.error);
+                } else {
+                    alert('Call initiated successfully!');
+                }
+            } catch (error) {
+                console.error('Error making outbound call:', error);
+                alert('Error making call. Please try again.');
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Make Call';
+            }
+        }
     </script>
 
 </body>

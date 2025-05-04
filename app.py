@@ -36,7 +36,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from twilio.rest import Client
-from twilio.twiml.voice_response import VoiceResponse
+from twilio.twiml.voice_response import VoiceResponse, Connect, ConversationRelay
 from config import Config
 from urllib.parse import quote
 import pytz
@@ -387,9 +387,8 @@ def dashboard():
     if "user" not in session:
         print("Session missing 'user' key, redirecting to login")
         return redirect(url_for("login"))
-    print(user_timers.get(current_user.id, {}))
+
     is_calling_on = user_timers.get(current_user.id, {}).get("timer", None) is not None
-    print(is_calling_on)
     profile_picture = session["user"]["picture"]
     return render_template(
         "dashboard.html",
@@ -546,6 +545,8 @@ def update_shopify_settings():
     working_hours_start = data.get("working_hours_start", "").strip()
     working_hours_end = data.get("working_hours_end", "").strip()
     voice_message = data.get("voice_message", "").strip()
+    voice_message_draft = data.get("voice_message_draft", "").strip()
+    voice_gender = data.get("voice_gender", "").strip()
 
     if not all([shopify_shop_url, shopify_access_token, twilio_phone_number]):
         return jsonify({"error": "All fields are required"}), 400
@@ -565,29 +566,176 @@ def update_shopify_settings():
     current_user.working_hours_start = working_hours_start
     current_user.working_hours_end = working_hours_end
     current_user.voice_message = voice_message
+    current_user.voice_message_draft = voice_message_draft
+    current_user.agent_gender = voice_gender
     db.session.commit()
     return jsonify({"message": "Shopify settings updated"})
 
 
 # TWILIO STUFF
+
+voice_id_dic = {
+    "m": "am5XuPVtut7uKJQKMja2",
+    "f": "urzoE6aZYmSRdFQ6215h",
+}
+
 twilio_client = Client(Config.TWILIO_ACCOUNT_SID, Config.TWILIO_AUTH_TOKEN)
 call_responses = {}
 
 
-def make_call(phone_number, order_value, item_name, user_email, order_id, from_number):
-    """Calls the customer and plays a Romanian voice message."""
+def init_outbound_call(
+    to_phone_number,
+    from_phone_number,
+    user_email,
+    order_id,
+    order_value,
+    item_name,
+    type,  # can be "draft" or "order" or "demo"
+):
     call = twilio_client.calls.create(
-        to=phone_number,
-        from_=from_number,
-        url=f"http://37.27.108.19:9000/voice?order_value={quote(str(order_value))}&item_name={quote(item_name)}&user_email={quote(user_email)}&order_id={quote(str(order_id))}",
+        to=to_phone_number,
+        from_=from_phone_number,
+        url=f"http://37.27.108.19:9000/voice-webhook?order_id={quote(str(order_id))}&user_email={quote(str(user_email))}&order_value={quote(str(order_value))}&item_name={quote(str(item_name))}&type={quote(str(type))}",
     )
 
-    print(f"📞 Calling {phone_number} - Call SID: {call.sid}")
+    print("Call initiated:", call.sid)
+
     return call.sid
 
 
-@app.route("/call_customer", methods=["POST"])
-def call_customer():
+@app.route("/demo-call", methods=["POST"])
+def demo_call():
+    data = request.get_json()
+    to_phone_number = format_phone_number(data.get("to_phone_number"))
+
+    try:
+        init_outbound_call(
+            to_phone_number,
+            current_user.phone_number,
+            current_user.email,
+            "#0000",
+            "100",
+            "Nume produs",
+            "demo",
+        )
+    except Exception as e:
+        print(e)
+        return jsonify({"error": "Failed to start demo call!"})
+
+    return jsonify({"message": "Demo call initiated!"})
+
+
+@app.route("/voice-webhook", methods=["POST"])
+def voice_webhook():
+    user_email = request.args.get("user_email", "")
+    order_id = request.args.get("order_id", "")
+    order_value = request.args.get("order_value", "").split(".")[0]
+    item_name = request.args.get("item_name", "")
+    type = request.args.get("type", "")
+
+    # print("We got this data:")
+    # print(f"user_email: {user_email}")
+    # print(f"order_id: {order_id}")
+    # print(f"order_value: {order_value}")
+    # print(f"item_name: {item_name}")
+    # print(f"type: {type}")
+
+    user_element = get_user_by_email(user_email)
+
+    if type == "order":
+        custom_message = (
+            user_element.voice_message
+            if user_element and user_element.voice_message
+            else "Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dumneavoastră?"
+        )
+    elif type == "draft":
+        custom_message = (
+            user_element.voice_message_draft
+            if user_element and user_element.voice_message_draft
+            else "Bună ziua! Ați încercat recent să plasați o comandă pe magazinul nostru pentru suma de {order_value} lei. Doriți să confirmați comanda dumneavoastră?"
+        )
+    else:
+        custom_message = (
+            user_element.voice_message
+            if user_element and user_element.voice_message
+            else "Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dumneavoastră?"
+        )
+
+    # Format the message with the actual values
+    formatted_message = custom_message.format(
+        order_value=order_value, item_name=item_name
+    )
+
+    response = VoiceResponse()
+    connect = Connect()
+    conversation_relay = ConversationRelay(
+        url="wss://www.ecomdraft.online/ws/",
+        welcome_greeting=formatted_message,
+        ttsProvider="ElevenLabs",
+        language="ro-RO",
+        voice=voice_id_dic[user_element.agent_gender],
+    )
+    conversation_relay.parameter(name="order_id", value=order_id)
+    conversation_relay.parameter(name="user_email", value=user_email)
+    conversation_relay.parameter(name="type", value=type)
+    connect.append(conversation_relay)
+
+    response.append(connect)
+    return Response(str(response), mimetype="text/xml")
+
+
+@app.route("/call-result", methods=["POST"])
+async def call_result():
+    is_demo = 0
+    data = request.get_json()
+
+    call_sid = data.get("call_sid")
+    to_phone_number = data.get("to_phone_number")
+    user_email = data.get("user_email")
+    order_id = data.get("order_id")
+    type = data.get("type")
+    status = data.get("status")
+
+    print(f"📞 Received result for user: {user_email}, order: {order_id}, type: {type}")
+    print(f"✅ Outcome: {status}")
+
+    user_element = get_user_by_email(user_email)
+    if (
+        user_element.shopify_shop_url == None
+        or user_element.shopify_access_token == None
+    ):
+        print(f"THE USER HAS NO SHOPIFY SETTINGS: {user_element.email}")
+        return jsonify({"error": "User has not filled SHOPIFY settings!"})
+
+    if type == "order":  # process the order confirmation status
+        print("INSIDE 'ORDER' if")
+        order = get_order_by_name(user_element, order_id)
+        if not order:
+            print(f"ERROR: can't get the order for order_id: {order_id}")
+            return jsonify({"error": f"can't get the order for order_id: {order_id}"})
+        print("PROCESS ORDER NOTE PARAMS")
+        print(user_element)
+        print(order["id"])
+        print(f"called: {status}")
+        edit_order_note(user_element, order["id"], f"called: {status}")
+    elif type == "draft":  # process the draft order
+        process_draft_order(user_element, order_id, status)
+    else:  # mark as it being a demo call
+        is_demo = 1
+
+    if is_demo != 1:
+        redis_key = f"call:{user_email}:{call_sid}"
+        status_key = f"status:{user_email}:{to_phone_number}"
+        app.config["SESSION_REDIS"].setex(redis_key, 300, status)
+        app.config["SESSION_REDIS"].setex(status_key, 86400, status)
+
+    response = {"message": "Data received successfully!", "receivedData": data}
+    return jsonify(response)
+
+
+# called by the FRONTEND to call a single draft order
+@app.route("/call_draft", methods=["POST"])
+def call_draft():
     if "user" not in session:
         return jsonify({"error": "User not authenticated"}), 401
 
@@ -612,13 +760,14 @@ def call_customer():
 
     try:
         # Call the user and get their response
-        call_sid = make_call(
+        call_sid = init_outbound_call(
             phone,
-            order_value,
-            item_name,
+            current_user.phone_number,
             user_email,
             order_id,
-            current_user.phone_number,
+            order_value,
+            item_name,
+            "draft",
         )
 
         redis_key = f"call:{user_email}:{call_sid}"
@@ -649,106 +798,6 @@ def call_customer():
         return jsonify({"error": f"Call failed: {str(e)}"}), 500
 
 
-@app.route("/voice", methods=["POST"])
-def voice():
-    order_value = request.args.get("order_value", "necunoscută")
-    user_email = request.args.get("user_email", "")
-    order_id = request.args.get("order_id", "")
-    item_name = request.args.get("item_name", "")
-
-    # Get the user's custom message or use default
-    user = get_user_by_email(user_email)
-    custom_message = (
-        user.voice_message
-        if user and user.voice_message
-        else "Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dvs.?"
-    )
-
-    # Format the message with the actual values
-    formatted_message = custom_message.format(
-        order_value=order_value, item_name=item_name
-    )
-
-    response = VoiceResponse()
-    response.say(
-        formatted_message,
-        language="ro-RO",
-        voice="Google.ro-RO-Wavenet-B",
-    )
-
-    process_url = (
-        f"http://37.27.108.19:9000/process-response?"
-        f"user_email={quote(user_email)}&order_id={quote(order_id)}"
-    )
-
-    gather = response.gather(
-        input="speech",
-        language="ro-RO",
-        speechTimeout="auto",
-        action=process_url,
-        method="POST",
-    )
-    gather.say(
-        "Spuneți 'Da' pentru confirmare sau 'Nu' pentru anulare.",
-        language="ro-RO",
-        voice="Google.ro-RO-Wavenet-B",
-    )
-
-    return Response(str(response), mimetype="text/xml")
-
-
-@app.route("/process-response", methods=["POST"])
-def process_response():
-    """Processes the user's spoken response in Romanian."""
-    user_response = request.form.get("SpeechResult", "").strip().lower()
-    called_number = request.form.get("Called", "").strip()
-    call_sid = request.form.get("CallSid", "")
-    user_email = request.args.get("user_email", "")
-    order_id = request.args.get("order_id", "")
-
-    print(f"Utilizatorul a spus: {user_response}")
-
-    response = VoiceResponse()
-    status = None
-    if "da" in user_response:
-        response.say(
-            "Ai spus 'Da'. Mulțumim!", language="ro-RO", voice="Google.ro-RO-Wavenet-B"
-        )
-        user_element = get_user_by_email(user_email)
-        if (
-            user_element.shopify_shop_url != None
-            and user_element.shopify_access_token != None
-        ):
-            process_draft_order(user_element, order_id, "confirm")
-        status = "Confirmed"
-    elif "nu" in user_response:
-        response.say(
-            "Ai spus 'Nu'. Înțeles!", language="ro-RO", voice="Google.ro-RO-Wavenet-B"
-        )
-        user_element = get_user_by_email(user_email)
-        if (
-            user_element.shopify_shop_url != None
-            and user_element.shopify_access_token != None
-        ):
-            process_draft_order(user_element, order_id, "cancel")
-        status = "Declined"
-    else:
-        response.say(
-            "Îmi pare rău, nu am înțeles. Te rog, spune 'Da' sau 'Nu'.",
-            language="ro-RO",
-        )
-        status = "No Answer"
-
-    redis_key = f"call:{user_email}:{call_sid}"
-    status_key = f"status:{user_email}:{called_number}"
-    app.config["SESSION_REDIS"].setex(redis_key, 300, status)
-    app.config["SESSION_REDIS"].setex(
-        status_key, 86400, status
-    )  # Store status for 24 hours
-
-    return Response(str(response), mimetype="text/xml")
-
-
 # SHOPIFY INTEGRATION
 def get_draft_order_by_name(user_element, draft_order_name):
     """
@@ -764,7 +813,7 @@ def get_draft_order_by_name(user_element, draft_order_name):
     # Get all draft orders
     base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
     url = f"{base_url}/draft_orders.json"
-    response = requests.get(url=url, headers=headers)
+    response = requests.get(url=url, headers=headers, verify="/app/cacert.pem")
 
     if response.status_code == 200:
         draft_orders = response.json()["draft_orders"]
@@ -796,7 +845,7 @@ def get_order_by_name(user_element, draft_order_name):
     # Get all orders
     base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
     url = f"{base_url}/orders.json"
-    response = requests.get(url=url, headers=headers)
+    response = requests.get(url=url, headers=headers, verify="/app/cacert.pem")
 
     if response.status_code == 200:
         orders = response.json()["orders"]
@@ -826,7 +875,7 @@ def complete_draft_order(user_element, draft_order_id):
         "Content-Type": "application/json",
         "X-Shopify-Access-Token": user_element.shopify_access_token,
     }
-    response = requests.put(url=url, headers=headers)
+    response = requests.put(url=url, headers=headers, verify="/app/cacert.pem")
 
     if response.status_code == 200:
         completed_order = response.json()["draft_order"]
@@ -849,7 +898,7 @@ def delete_draft_order(user_element, draft_order_id):
         "Content-Type": "application/json",
         "X-Shopify-Access-Token": user_element.shopify_access_token,
     }
-    response = requests.delete(url=url, headers=headers)
+    response = requests.delete(url=url, headers=headers, verify="/app/cacert.pem")
 
     if response.status_code == 200:
         print(
@@ -891,7 +940,7 @@ def get_all_drafts(user_element):
     # Get all draft orders
     base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
     url = f"{base_url}/draft_orders.json"
-    response = requests.get(url=url, headers=headers)
+    response = requests.get(url=url, headers=headers, verify="/app/cacert.pem")
 
     if response.status_code == 200:
         draft_orders = response.json()["draft_orders"]
@@ -941,7 +990,7 @@ def get_all_orders(user_element):
     # Get all draft orders
     base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
     url = f"{base_url}/orders.json"
-    response = requests.get(url=url, headers=headers)
+    response = requests.get(url=url, headers=headers, verify="/app/cacert.pem")
 
     if response.status_code == 200:
         orders = response.json()["orders"]
@@ -961,15 +1010,15 @@ def edit_order_note(user_element, order_id, note_text):
     json_data = {"order": {"id": order_id, "note": note_text}}
     base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
     url = f"{base_url}/orders/{order_id}.json"
-    response = requests.put(url=url, headers=headers, json=json_data)
+    response = requests.put(
+        url=url, headers=headers, json=json_data, verify="/app/cacert.pem"
+    )
 
-    if response.status_code == 200:
-        return None
-    else:
+    if response.status_code != 200:
         print(
             f"Failed to Edit Order Note. Status code: {response.status_code}, {response.text}"
         )
-        return None
+    return None
 
 
 def get_uncalled_leads(user_element):
@@ -1034,6 +1083,8 @@ def scan_new_orders(user_element):
         working_hours_start=user_element.working_hours_start,
         working_hours_end=user_element.working_hours_end,
         voice_message=user_element.voice_message,
+        voice_message_draft=user_element.voice_message_draft,
+        agent_gender=user_element.agent_gender,
     )
     thread = threading.Thread(target=call_all_uncalled_leads, args=(my_user,))
     thread.start()
@@ -1072,7 +1123,6 @@ def stop_timer():
     if current_user.id in user_timers and user_timers[current_user.id]["timer"]:
         user_timers[current_user.id]["timer"].cancel()
         user_timers[current_user.id]["timer"] = None
-        print("not returned error at STOP TIMER")
         return jsonify({"message": f"Timer stopped for user {current_user.id}"}), 200
     else:
         print("returned error at STOP TIMER")
@@ -1083,8 +1133,8 @@ def stop_timer():
 
 
 def call_order(user_element, phone, order_name, order_value, item_name):
-    phone_number = format_phone_number(phone)
-    status_key = f"status:{user_element.email}:{phone_number}"
+    to_phone_number = format_phone_number(phone)
+    status_key = f"status:{user_element.email}:{to_phone_number}"
 
     # Check if already processed
     existing_status = (
@@ -1096,14 +1146,15 @@ def call_order(user_element, phone, order_name, order_value, item_name):
         return
 
     try:
-        # Call the user and get their response
-        call_sid = make_call_2(
-            phone_number,
-            order_value,
-            item_name,
+        # Call the user with the placed order
+        call_sid = init_outbound_call(
+            to_phone_number,
+            user_element.phone_number,
             user_element.email,
             order_name,
-            user_element.phone_number,
+            order_value,
+            item_name,
+            "order",
         )
 
         redis_key = f"call:{user_element.email}:{call_sid}"
@@ -1122,9 +1173,9 @@ def call_order(user_element, phone, order_name, order_value, item_name):
                 app.config["SESSION_REDIS"].delete(redis_key)
                 app.config["SESSION_REDIS"].setex(status_key, 86400, status)
                 print(f"status {status} for call with sid: {call_sid}")
-                update = f"Called {phone_number}:order {order_name} :status {status}"
+                update = f"Called {to_phone_number}:order {order_name} :status {status}"
                 store_call_for_user(
-                    user_element.id, phone_number, order_name, status, 50, 172800
+                    user_element.id, to_phone_number, order_name, status, 50, 172800
                 )
                 return
             tm.sleep(interval)
@@ -1136,146 +1187,6 @@ def call_order(user_element, phone, order_name, order_value, item_name):
     except Exception as e:
         print(f"ERROR: Call failed: {str(e)}")
         return
-
-
-def make_call_2(
-    phone_number, order_value, item_name, user_email, order_id, from_number
-):
-    """Calls the customer and plays a Romanian voice message."""
-    call = twilio_client.calls.create(
-        to=phone_number,
-        from_=from_number,
-        url=f"http://37.27.108.19:9000/voice_2?order_value={quote(str(order_value))}&item_name={quote(item_name)}&user_email={quote(user_email)}&order_id={quote(str(order_id))}",
-    )
-
-    print(f"📞 Calling {phone_number} - Call SID: {call.sid}")
-    return call.sid
-
-
-@app.route("/voice_2", methods=["POST"])
-def voice_2():
-    order_value = request.args.get("order_value", "necunoscută")
-    item_name = request.args.get("item_name", "Nume produs")
-    user_email = request.args.get("user_email", "")
-    order_id = request.args.get("order_id", "")
-
-    # Get the user's custom message or use default
-    user = get_user_by_email(user_email)
-    custom_message = (
-        user.voice_message
-        if user and user.voice_message
-        else "Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dvs.?"
-    )
-
-    # Format the message with the actual values
-    formatted_message = custom_message.format(
-        order_value=order_value, item_name=item_name
-    )
-
-    response = VoiceResponse()
-    response.say(
-        formatted_message,
-        language="ro-RO",
-        voice="Google.ro-RO-Wavenet-B",
-    )
-
-    process_url = (
-        f"http://37.27.108.19:9000/process-response_2?"
-        f"user_email={quote(user_email)}&order_id={quote(order_id)}"
-    )
-
-    gather = response.gather(
-        input="speech",
-        language="ro-RO",
-        speechTimeout="auto",
-        action=process_url,
-        method="POST",
-    )
-    gather.say(
-        "Spuneți 'Da' pentru confirmare sau 'Nu' pentru anulare.",
-        language="ro-RO",
-        voice="Google.ro-RO-Wavenet-B",
-    )
-
-    return Response(str(response), mimetype="text/xml")
-
-
-@app.route("/process-response_2", methods=["POST"])
-def process_response_2():
-    """Processes the user's spoken response in Romanian."""
-    user_response = request.form.get("SpeechResult", "").strip().lower()
-    called_number = request.form.get("Called", "").strip()
-    call_sid = request.form.get("CallSid", "")
-    user_email = request.args.get("user_email", "")
-    order_id = request.args.get("order_id", "")
-
-    print(f"Utilizatorul a spus: {user_response}")
-
-    response = VoiceResponse()
-    status = None
-    if "da" in user_response:
-        response.say(
-            "Ai spus 'Da'. Mulțumim!", language="ro-RO", voice="Google.ro-RO-Wavenet-B"
-        )
-        user_element = get_user_by_email(user_email)
-        if (
-            user_element.shopify_shop_url != None
-            and user_element.shopify_access_token != None
-        ):
-            # change the note to "called: confirmed"
-            order = get_order_by_name(user_element, order_id)
-
-            if not order:
-                print(f"ERROR: cant get the order for order_id: {order_id}")
-                response.say(
-                    "Îmi pare rău, nu am înțeles. Te rog, spune 'Da' sau 'Nu'.",
-                    language="ro-RO",
-                )
-                status = "No Answer"
-                return Response(str(response), mimetype="text/xml")
-
-            selected_order_id = order["id"]
-            edit_order_note(user_element, selected_order_id, "called: confirmed")
-        status = "Confirmed"
-    elif "nu" in user_response:
-        response.say(
-            "Ai spus 'Nu'. Înțeles!", language="ro-RO", voice="Google.ro-RO-Wavenet-B"
-        )
-        user_element = get_user_by_email(user_email)
-        if (
-            user_element.shopify_shop_url != None
-            and user_element.shopify_access_token != None
-        ):
-            # change the note to "called: declined"
-            order = get_order_by_name(user_element, order_id)
-
-            if not order:
-                print(f"ERROR: cant get the order for order_id: {order_id}")
-                response.say(
-                    "Îmi pare rău, nu am înțeles. Te rog, spune 'Da' sau 'Nu'.",
-                    language="ro-RO",
-                )
-                status = "No Answer"
-                return Response(str(response), mimetype="text/xml")
-
-            selected_order_id = order["id"]
-            edit_order_note(user_element, selected_order_id, "called: declined")
-        status = "Declined"
-    else:
-        response.say(
-            "Îmi pare rău, nu am înțeles. Te rog, spune 'Da' sau 'Nu'.",
-            language="ro-RO",
-        )
-        status = "No Answer"
-
-    redis_key = f"call:{user_email}:{call_sid}"
-    status_key = f"status:{user_email}:{called_number}"
-    app.config["SESSION_REDIS"].setex(redis_key, 300, status)
-    app.config["SESSION_REDIS"].setex(
-        status_key, 86400, status
-    )  # Store status for 24 hours
-
-    return Response(str(response), mimetype="text/xml")
 
 
 @app.route("/get_users_timer", methods=["POST"])
@@ -1331,7 +1242,6 @@ def get_user_calls():
             )
             for call in raw_calls
         ]
-        # calls = [c.decode("utf-8") for c in redis_client.lrange(key, 0, 49)]
         return jsonify(calls)
     except Exception as e:
         print(f"Error: {e}")

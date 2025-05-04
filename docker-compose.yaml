@@ -9,5 +9,19 @@ services:
       - redis
     volumes:
       - ./:/app  # Maps ecom_draft to /app
+    command: python3 -u app.py
+
+  websocket:
+    build: .
+    ports:
+      - "9001:9001"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    volumes:
+      - ./:/app
+    command: python3 -u websocket_sv.py
+
   redis:
     image: redis:latest
