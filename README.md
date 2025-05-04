@@ -35,25 +35,27 @@ TWILIO_AUTH_TOKEN="your_twilio_auth_token"
 TWILIO_PHONE_NUMBER="your_twilio_phone_number"
 
 # Redis connection URL
-REDIS_URL="redis://my-redis:6379/0"
+REDIS_URL="redis://redis:6379/0"
 ```
 
 ## Running the Application
 
-1. Start the Redis instance using Docker Compose:
+The application requires three containers to run properly:
+
+1. Main web application container
+2. WebSocket server container
+3. Redis container
+
+To start all containers, run:
+
 ```bash
 docker-compose up -d
 ```
 
-2. Install the required Python packages:
-```bash
-pip install -r requirements.txt
-```
-
-3. Run the Flask application:
-```bash
-python app.py
-```
+This will start:
+- The main web application on port 5000
+- The WebSocket server on port 5001
+- Redis on port 6379
 
 The application will be available at `http://localhost:5000`
 
@@ -64,8 +66,9 @@ The application will be available at `http://localhost:5000`
 - `config.py`: Configuration settings
 - `templates/`: HTML templates for the web interface
 - `static/`: Static files (CSS, JavaScript, images)
-- `docker-compose.yaml`: Docker Compose configuration for Redis
-- `Dockerfile`: Docker configuration for the application
+- `docker-compose.yaml`: Docker Compose configuration for all services
+- `Dockerfile`: Docker configuration for the main application
+- `websocket.Dockerfile`: Docker configuration for the WebSocket server
 
 ## Features
 
@@ -74,6 +77,7 @@ The application will be available at `http://localhost:5000`
 - Shopify store integration
 - Twilio messaging capabilities
 - Redis for session management and caching
+- Real-time WebSocket communication
 
 ## Development
 
