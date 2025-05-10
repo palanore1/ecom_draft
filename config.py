@@ -26,3 +26,6 @@ class Config:
     # SHOPIFY STUFF
     SHOPIFY_SHOP_URL = os.getenv("SHOPIFY_SHOP_URL")
     SHOPIFY_ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")
+
+    # GEOCODING
+    GEOCODING_API_KEY = os.getenv("GEOCODING_API_KEY")

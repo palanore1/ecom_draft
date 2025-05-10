@@ -42,6 +42,8 @@ from urllib.parse import quote
 import pytz
 import threading
 
+import urllib.parse
+
 app = Flask(__name__)
 app.config.from_object(Config)
 
@@ -180,6 +182,37 @@ def extract_phone_number(note_attributes):
     return None  # Return None if no phone number found
 
 
+def extract_address(note_attributes):
+    address = ""
+    city = ""
+    county = ""
+
+    for item in note_attributes:
+        name = item.get("name", "")
+        value = item.get("value", "")
+
+        if name in [
+            "Adresă",
+            "Adresa",
+            "Adresă livrare",
+            "Address",
+            "Adresa livrare",
+            "Adresă Livrare",
+            "Adresa Livrare",
+        ]:
+            address = value
+
+        elif name in ["Localitate", "Oras", "Oraș", "Sat", "Comună", "City"]:
+            city = value
+
+        elif name in ["Județ", "Sector", "Province"]:
+            county = value
+
+    # Only join non-empty parts
+    parts = [part for part in [county, city, address] if part]
+    return ", ".join(parts)
+
+
 def clean_order_list(order_list):
     phone_map = {}
 
@@ -271,37 +304,47 @@ def is_time_within_intervals(time_intervals):
     return False
 
 
-# SHEETS API
-def read_google_sheet(sheet_url):
-    token = session.get("google_token")
+# GEOCODING API
+def geocode_address(address: str) -> dict:
+    base_url = "https://maps.googleapis.com/maps/api/geocode/json"
+    api_key = Config.GEOCODING_API_KEY
+    encoded_address = urllib.parse.quote(address)
+    url = f"{base_url}?key={api_key}&address={encoded_address}"
 
-    if not token:
-        return "User not authenticated."
+    response = requests.get(url)
+    if response.status_code != 200:
+        return {
+            "status": "ERROR",
+            "message": "Request failed",
+            "code": response.status_code,
+        }
 
-    # print(f"token when called the get sheet: {token}")
+    data = response.json()
+    if not data.get("results"):
+        return {"status": "NOT_FOUND", "match_type": "none"}
 
-    creds = Credentials(
-        token=token["access_token"],
-        refresh_token=token["refresh_token"],
-        token_uri=token["token_uri"],
-        client_id=token["client_id"],
-        client_secret=token["client_secret"],
-        scopes=token["scopes"],
-    )
+    result = data["results"][0]
+    types = result.get("types", [])
+    location_type = result.get("geometry", {}).get("location_type", "")
+    partial = data.get("partial_match", False)
 
-    service = build("sheets", "v4", credentials=creds)
-    sheet_id = sheet_url.split("/d/")[1].split("/")[0]  # Extract Google Sheet ID
-    range_name = "Sheet1!A1:J"  # Example range (modify as needed)
+    if "street_address" in types and location_type == "ROOFTOP" and not partial:
+        match_type = "exact"
+    elif "route" in types or location_type == "GEOMETRIC_CENTER":
+        match_type = "approximate"
+    elif partial or "locality" in types:
+        match_type = "fallback"
+    else:
+        match_type = "unknown"
 
-    result = (
-        service.spreadsheets()
-        .values()
-        .get(spreadsheetId=sheet_id, range=range_name)
-        .execute()
-    )
-    values = result.get("values", [])
-
-    return values
+    return {
+        "status": data.get("status", "UNKNOWN"),
+        "match_type": match_type,
+        "formatted_address": result.get("formatted_address", ""),
+        "location": result.get("geometry", {}).get("location", {}),
+        "place_id": result.get("place_id", ""),
+        "raw": data,  # Optional: include full response for debugging
+    }
 
 
 @login_manager.user_loader
@@ -590,12 +633,14 @@ def init_outbound_call(
     order_id,
     order_value,
     item_name,
+    confirm_address,
+    formatted_address,
     type,  # can be "draft" or "order" or "demo"
 ):
     call = twilio_client.calls.create(
         to=to_phone_number,
         from_=from_phone_number,
-        url=f"http://37.27.108.19:9000/voice-webhook?order_id={quote(str(order_id))}&user_email={quote(str(user_email))}&order_value={quote(str(order_value))}&item_name={quote(str(item_name))}&type={quote(str(type))}",
+        url=f"http://37.27.108.19:9000/voice-webhook?order_id={quote(str(order_id))}&user_email={quote(str(user_email))}&order_value={quote(str(order_value))}&item_name={quote(str(item_name))}&confirm_address={quote(str(confirm_address))}&formatted_address={quote(str(formatted_address))}&type={quote(str(type))}",
     )
 
     print("Call initiated:", call.sid)
@@ -607,7 +652,15 @@ def init_outbound_call(
 def demo_call():
     data = request.get_json()
     to_phone_number = format_phone_number(data.get("to_phone_number"))
+    confirm_address = data.get("confirm_address", "0")
+    address = data.get("address", "")
+    type = data.get("type", "draft")
 
+    if confirm_address == True:
+        confirm_address = "1"
+    else:
+        confirm_address = "0"
+    
     try:
         init_outbound_call(
             to_phone_number,
@@ -616,7 +669,9 @@ def demo_call():
             "#0000",
             "100",
             "Nume produs",
-            "demo",
+            confirm_address,
+            address,
+            type,
         )
     except Exception as e:
         print(e)
@@ -632,13 +687,8 @@ def voice_webhook():
     order_value = request.args.get("order_value", "").split(".")[0]
     item_name = request.args.get("item_name", "")
     type = request.args.get("type", "")
-
-    # print("We got this data:")
-    # print(f"user_email: {user_email}")
-    # print(f"order_id: {order_id}")
-    # print(f"order_value: {order_value}")
-    # print(f"item_name: {item_name}")
-    # print(f"type: {type}")
+    confirm_address = request.args.get("confirm_address", "")
+    formatted_address = request.args.get("formatted_address", "")
 
     user_element = get_user_by_email(user_email)
 
@@ -653,12 +703,6 @@ def voice_webhook():
             user_element.voice_message_draft
             if user_element and user_element.voice_message_draft
             else "Bună ziua! Ați încercat recent să plasați o comandă pe magazinul nostru pentru suma de {order_value} lei. Doriți să confirmați comanda dumneavoastră?"
-        )
-    else:
-        custom_message = (
-            user_element.voice_message
-            if user_element and user_element.voice_message
-            else "Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dumneavoastră?"
         )
 
     # Format the message with the actual values
@@ -678,6 +722,8 @@ def voice_webhook():
     conversation_relay.parameter(name="order_id", value=order_id)
     conversation_relay.parameter(name="user_email", value=user_email)
     conversation_relay.parameter(name="type", value=type)
+    conversation_relay.parameter(name="confirm_address", value=confirm_address)
+    conversation_relay.parameter(name="formatted_address", value=formatted_address)
     connect.append(conversation_relay)
 
     response.append(connect)
@@ -695,6 +741,13 @@ async def call_result():
     order_id = data.get("order_id")
     type = data.get("type")
     status = data.get("status")
+    try:
+        new_address = data.get("new_address")
+    except:
+        new_address = ""
+        print("No NEW ADDRESS")
+
+    # TODO: Change the address in the Shopify Order
 
     print(f"📞 Received result for user: {user_email}, order: {order_id}, type: {type}")
     print(f"✅ Outcome: {status}")
@@ -713,10 +766,6 @@ async def call_result():
         if not order:
             print(f"ERROR: can't get the order for order_id: {order_id}")
             return jsonify({"error": f"can't get the order for order_id: {order_id}"})
-        print("PROCESS ORDER NOTE PARAMS")
-        print(user_element)
-        print(order["id"])
-        print(f"called: {status}")
         edit_order_note(user_element, order["id"], f"called: {status}")
     elif type == "draft":  # process the draft order
         process_draft_order(user_element, order_id, status)
@@ -747,6 +796,7 @@ def call_draft():
     order_value = data.get("order_value", "necunoscută")
     order_id = data.get("order_id", "")
     item_name = data.get("item_name", "")
+    address = data.get("address", "")
     user_email = session["user"]["email"]
     status_key = f"status:{user_email}:{phone}"
 
@@ -758,6 +808,13 @@ def call_draft():
     if existing_status != "No Answer" and existing_status != None:
         return jsonify({"status": existing_status, "skipped": True})
 
+    confirm_address = 0
+
+    geocode_response = geocode_address(address)
+    if geocode_response["match_type"] != "exact":
+        confirm_address = 1
+    formatted_address = geocode_response["formatted_address"]
+
     try:
         # Call the user and get their response
         call_sid = init_outbound_call(
@@ -767,6 +824,8 @@ def call_draft():
             order_id,
             order_value,
             item_name,
+            confirm_address,
+            formatted_address,
             "draft",
         )
 
@@ -964,6 +1023,12 @@ def process_drafts(draft_orders):
                 order_details["item_name"] = draft_order["line_items"][0]["name"]
             except:
                 order_details["item_name"] = ""
+            try:
+                order_details["address"] = extract_address(
+                    draft_order.get("note_attributes")
+                )
+            except Exception as e:
+                print(f"cant get draft order details:\n{e}")
             order_details["created_at"] = format_datetime(
                 draft_order.get("created_at", "")
             )
@@ -972,7 +1037,6 @@ def process_drafts(draft_orders):
 
             if note_attributes != "" and note_attributes != []:
                 phone_number = extract_phone_number(note_attributes)
-                print(f"WE GOT PHONE NUMBER: {phone_number}")
             else:
                 phone_number = ""
 
@@ -1049,10 +1113,18 @@ def call_all_uncalled_leads(user_element):
 
     for ul in uncalled_leads:
         try:
+            confirm_address = 0
             print(f"Calling order {ul['name']} ...")
             phone_number = extract_phone_number(ul.get("note_attributes", []))
             if phone_number == None:
                 continue
+            full_address = extract_address(ul.get("note_attributes"))
+            # Compute Address validity
+            geocode_response = geocode_address(full_address)
+            if geocode_response["match_type"] != "exact":
+                confirm_address = 1
+            formatted_address = geocode_response["formatted_address"]
+
             # Call the recently placed order
             call_order(
                 user_element,
@@ -1060,6 +1132,8 @@ def call_all_uncalled_leads(user_element):
                 ul["name"],
                 ul["subtotal_price"],
                 ul["line_items"][0]["name"],
+                confirm_address,
+                formatted_address,
             )
         except Exception as e:
             print(f"Error at calling lead (call_all_uncalled_leads): {e}")
@@ -1132,7 +1206,15 @@ def stop_timer():
         )
 
 
-def call_order(user_element, phone, order_name, order_value, item_name):
+def call_order(
+    user_element,
+    phone,
+    order_name,
+    order_value,
+    item_name,
+    confirm_address,
+    formatted_address,
+):
     to_phone_number = format_phone_number(phone)
     status_key = f"status:{user_element.email}:{to_phone_number}"
 
@@ -1154,6 +1236,8 @@ def call_order(user_element, phone, order_name, order_value, item_name):
             order_name,
             order_value,
             item_name,
+            confirm_address,
+            formatted_address,
             "order",
         )
 
@@ -1246,6 +1330,28 @@ def get_user_calls():
     except Exception as e:
         print(f"Error: {e}")
         return jsonify([])
+
+
+@app.route("/get_geocode", methods=["POST"])
+@login_required
+def geocode_endpoint():
+    try:
+        data = request.get_json()
+        address = data.get("address")
+
+        if not address:
+            return jsonify({"error": "Address is required"}), 400
+
+        result = geocode_address(address)
+        return jsonify(
+            {
+                "match_type": result.get("match_type"),
+                "formatted_address": result.get("formatted_address"),
+            }
+        )
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
