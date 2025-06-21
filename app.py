@@ -37,7 +37,6 @@ from google.oauth2.credentials import Credentials
 
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse, Connect, ConversationRelay
-from config import Config
 from urllib.parse import quote
 import pytz
 import threading
@@ -274,9 +273,9 @@ def is_time_within_intervals(time_intervals):
 
     Args:
         time_intervals (list of tuples): A list of time interval tuples,
-                                         where each tuple contains two strings
-                                         representing the start and end times
-                                         in "HH:MM" format.
+    where each tuple contains two strings
+    representing the start and end times
+    in "HH:MM" format.
 
     Returns:
         bool: True if the current time is within any of the intervals, False otherwise.
@@ -618,8 +617,12 @@ def update_shopify_settings():
 # TWILIO STUFF
 
 voice_id_dic = {
-    "m": "am5XuPVtut7uKJQKMja2",
-    "f": "urzoE6aZYmSRdFQ6215h",
+    "m_1": "am5XuPVtut7uKJQKMja2",
+    "m_2": "S98OhkhaxeAKHEbhoLi7",
+    "m_3": "sGcPNcpR5PikknzyXcy7",
+    "f_1": "urzoE6aZYmSRdFQ6215h",
+    "f_2": "gbLy9ep70G3JW53cTzFC",
+    "f_3": "cD1j5eDqipyIUMIi7Q5e",
 }
 
 twilio_client = Client(Config.TWILIO_ACCOUNT_SID, Config.TWILIO_AUTH_TOKEN)
@@ -632,15 +635,17 @@ def init_outbound_call(
     user_email,
     order_id,
     order_value,
-    item_name,
+    items_list,
     confirm_address,
     formatted_address,
     type,  # can be "draft" or "order" or "demo"
+    delivery_fee=0,
 ):
+    store_url = current_user.shopify_shop_url
     call = twilio_client.calls.create(
         to=to_phone_number,
         from_=from_phone_number,
-        url=f"http://37.27.108.19:9000/voice-webhook?order_id={quote(str(order_id))}&user_email={quote(str(user_email))}&order_value={quote(str(order_value))}&item_name={quote(str(item_name))}&confirm_address={quote(str(confirm_address))}&formatted_address={quote(str(formatted_address))}&type={quote(str(type))}",
+        url=f"http://37.27.108.19:9000/voice-webhook?order_id={quote(str(order_id))}&user_email={quote(str(user_email))}&order_value={quote(str(order_value))}&items_list={quote(str(items_list))}&confirm_address={quote(str(confirm_address))}&formatted_address={quote(str(formatted_address))}&type={quote(str(type))}&delivery_fee={quote(str(delivery_fee))}&store_url={quote(str(store_url))}",
     )
 
     print("Call initiated:", call.sid)
@@ -655,23 +660,27 @@ def demo_call():
     confirm_address = data.get("confirm_address", "0")
     address = data.get("address", "")
     type = data.get("type", "draft")
+    order_amount = data.get("order_amount", "100")
+    delivery_fee = data.get("delivery_fee", "0")
+    items = data.get("items", [])
 
     if confirm_address == True:
         confirm_address = "1"
     else:
         confirm_address = "0"
-    
+
     try:
         init_outbound_call(
             to_phone_number,
             current_user.phone_number,
             current_user.email,
             "#0000",
-            "100",
-            "Nume produs",
+            order_amount,
+            ", ".join(items) if items else "Nume produs",
             confirm_address,
             address,
             type,
+            delivery_fee,
         )
     except Exception as e:
         print(e)
@@ -685,11 +694,12 @@ def voice_webhook():
     user_email = request.args.get("user_email", "")
     order_id = request.args.get("order_id", "")
     order_value = request.args.get("order_value", "").split(".")[0]
-    item_name = request.args.get("item_name", "")
+    items_list = request.args.get("items_list", "")
     type = request.args.get("type", "")
     confirm_address = request.args.get("confirm_address", "")
     formatted_address = request.args.get("formatted_address", "")
-
+    delivery_fee = request.args.get("delivery_fee", "")
+    store_url = request.args.get("store_url", "")
     user_element = get_user_by_email(user_email)
 
     if type == "order":
@@ -707,7 +717,7 @@ def voice_webhook():
 
     # Format the message with the actual values
     formatted_message = custom_message.format(
-        order_value=order_value, item_name=item_name
+        order_value=order_value, item_name=items_list
     )
 
     response = VoiceResponse()
@@ -718,12 +728,19 @@ def voice_webhook():
         ttsProvider="ElevenLabs",
         language="ro-RO",
         voice=voice_id_dic[user_element.agent_gender],
+        welcomeGreetingInterruptible=False,
+        interruptible=False,
     )
     conversation_relay.parameter(name="order_id", value=order_id)
     conversation_relay.parameter(name="user_email", value=user_email)
     conversation_relay.parameter(name="type", value=type)
     conversation_relay.parameter(name="confirm_address", value=confirm_address)
     conversation_relay.parameter(name="formatted_address", value=formatted_address)
+    conversation_relay.parameter(name="delivery_fee", value=delivery_fee)
+    conversation_relay.parameter(name="items_list", value=items_list)
+    conversation_relay.parameter(name="order_value", value=order_value)
+    conversation_relay.parameter(name="store_url", value=store_url)
+    conversation_relay.parameter(name="initial_message", value=formatted_message)
     connect.append(conversation_relay)
 
     response.append(connect)
@@ -741,16 +758,17 @@ async def call_result():
     order_id = data.get("order_id")
     type = data.get("type")
     status = data.get("status")
-    try:
-        new_address = data.get("new_address")
-    except:
-        new_address = ""
-        print("No NEW ADDRESS")
+    new_address = data.get("new_address", "")
 
-    # TODO: Change the address in the Shopify Order
+    # TODO: Change the address in the Shopify Order -> handled in tool calls now
 
     print(f"📞 Received result for user: {user_email}, order: {order_id}, type: {type}")
     print(f"✅ Outcome: {status}")
+    if new_address != "":
+        print(f"🏠 New address: {new_address}")
+    if status == "question":
+        response = {"message": "Other question", "receivedData": data}
+        return jsonify(response)
 
     user_element = get_user_by_email(user_email)
     if (
@@ -761,7 +779,6 @@ async def call_result():
         return jsonify({"error": "User has not filled SHOPIFY settings!"})
 
     if type == "order":  # process the order confirmation status
-        print("INSIDE 'ORDER' if")
         order = get_order_by_name(user_element, order_id)
         if not order:
             print(f"ERROR: can't get the order for order_id: {order_id}")
@@ -870,7 +887,7 @@ def get_draft_order_by_name(user_element, draft_order_name):
         "X-Shopify-Access-Token": user_element.shopify_access_token,
     }
     # Get all draft orders
-    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
+    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-04"
     url = f"{base_url}/draft_orders.json"
     response = requests.get(url=url, headers=headers, verify="/app/cacert.pem")
 
@@ -902,7 +919,7 @@ def get_order_by_name(user_element, draft_order_name):
         "X-Shopify-Access-Token": user_element.shopify_access_token,
     }
     # Get all orders
-    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
+    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-04"
     url = f"{base_url}/orders.json"
     response = requests.get(url=url, headers=headers, verify="/app/cacert.pem")
 
@@ -927,7 +944,7 @@ def complete_draft_order(user_element, draft_order_id):
     """
     Complete a draft order, converting it to a normal order
     """
-    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
+    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-04"
     url = f"{base_url}/draft_orders/{draft_order_id}/complete.json?paymentpending=true"
 
     headers = {
@@ -951,7 +968,7 @@ def delete_draft_order(user_element, draft_order_id):
     """
     Delete (cancel) a draft order
     """
-    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
+    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-04"
     url = f"{base_url}/draft_orders/{draft_order_id}.json"
     headers = {
         "Content-Type": "application/json",
@@ -997,8 +1014,11 @@ def get_all_drafts(user_element):
         "X-Shopify-Access-Token": user_element.shopify_access_token,
     }
     # Get all draft orders
-    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
-    url = f"{base_url}/draft_orders.json"
+    url = (
+        "https://"
+        + user_element.shopify_shop_url
+        + "/admin/api/2025-04/draft_orders.json"
+    )
     response = requests.get(url=url, headers=headers, verify="/app/cacert.pem")
 
     if response.status_code == 200:
@@ -1052,8 +1072,7 @@ def get_all_orders(user_element):
         "X-Shopify-Access-Token": user_element.shopify_access_token,
     }
     # Get all draft orders
-    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
-    url = f"{base_url}/orders.json"
+    url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-04/orders.json"
     response = requests.get(url=url, headers=headers, verify="/app/cacert.pem")
 
     if response.status_code == 200:
@@ -1065,27 +1084,146 @@ def get_all_orders(user_element):
         return None
 
 
+def get_one_order(user_element, order_id):
+    headers = {
+        "X-Shopify-Access-Token": user_element.shopify_access_token,
+    }
+
+    response = requests.get(
+        f"https://{user_element.shopify_shop_url}/admin/api/2025-04/orders/{order_id}.json",
+        headers=headers,
+    )
+    return response.json()
+
+
 def edit_order_note(user_element, order_id, note_text):
+    """
+    Edit the order note. If the order has no note, create a new one. If the order has a note, append the new note to the existing one.
+    """
     headers = {
         "Content-Type": "application/json",
         "X-Shopify-Access-Token": user_element.shopify_access_token,
     }
 
-    json_data = {"order": {"id": order_id, "note": note_text}}
-    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-01"
-    url = f"{base_url}/orders/{order_id}.json"
-    response = requests.put(
-        url=url, headers=headers, json=json_data, verify="/app/cacert.pem"
-    )
+    order_object = get_one_order(user_element, order_id)
+    existing_note = order_object["order"]["note"]
+    if existing_note == None:
+        existing_note = ""
 
-    if response.status_code != 200:
+    updated_note = existing_note + "\n" + note_text
+
+    json_data = {"order": {"id": order_id, "note": updated_note}}
+    base_url = "https://" + user_element.shopify_shop_url + "/admin/api/2025-04"
+    url = f"{base_url}/orders/{order_id}.json"
+    response = requests.put(url=url, headers=headers, json=json_data)
+
+    if response.status_code == 200:
+        print(response.text)
+
+        return None
+    else:
         print(
             f"Failed to Edit Order Note. Status code: {response.status_code}, {response.text}"
         )
-    return None
+        return None
+
+
+def change_order_shipping_address_in_notes(user_element, order_id, new_address):
+    headers = {
+        "X-Shopify-Access-Token": user_element.shopify_access_token,
+        "Content-Type": "application/json",
+    }
+
+    order_object = get_one_order(user_element, order_id)
+    note_attributes = order_object["order"]["note_attributes"]
+    note_attributes.append(
+        {
+            "name": "Adresă schimbată",
+            "value": new_address,
+        }
+    )
+
+    json_data = {
+        "order": {
+            "id": order_id,
+            "note_attributes": note_attributes,
+        },
+    }
+
+    response = requests.put(
+        f"https://{user_element.shopify_shop_url}/admin/api/2025-04/orders/{order_id}.json",
+        headers=headers,
+        json=json_data,
+    )
+
+    if response.status_code == 200:
+        return True
+    else:
+        print(
+            f"Failed to change order shipping address in note attributes. Status code: {response.status_code}"
+        )
+        return False
+
+
+def change_order_shipping_address(user_element, order_id, new_address):
+    headers = {
+        "X-Shopify-Access-Token": user_element.shopify_access_token,
+        "Content-Type": "application/json",
+    }
+
+    json_data = {
+        "order": {
+            "id": int(order_id),
+            "shipping_address": {
+                "address1": new_address,
+                "city": "Bucuresti",
+            },
+        },
+    }
+
+    response = requests.put(
+        f"https://{user_element.shopify_shop_url}/admin/api/2025-04/orders/{order_id}.json",
+        headers=headers,
+        json=json_data,
+    )
+
+    if response.status_code == 200:
+        return True
+    else:
+        print(
+            f"Failed to change order shipping address. Status code: {response.status_code}"
+        )
+        return False
+
+
+# Functions to handle tool calls in the websocket server, but need resources from the backend server
+def edit_order_note_by_email(user_email, order_id, note_text):
+    user_element = get_user_by_email(user_email)
+    if user_element == None:
+        print(f"User {user_email} not found")
+        return 1
+    edit_order_note(user_element, order_id, note_text)
+    return 0
+
+
+# Function to change the address of the order in notes and in the actual order
+def change_address_by_email(user_email, order_id, new_address):
+    user_element = get_user_by_email(user_email)
+    if user_element == None:
+        print(f"User {user_email} not found")
+        return 1
+    change_order_shipping_address_in_notes(user_element, order_id, new_address)
+    try:
+        change_order_shipping_address(user_element, order_id, new_address)
+    except Exception as e:
+        pass
+    return 0
 
 
 def get_uncalled_leads(user_element):
+    """
+    Gets all the leads within the last 24h
+    """
     orders = get_all_orders(user_element)
 
     uncalled_orders = []
@@ -1131,7 +1269,7 @@ def call_all_uncalled_leads(user_element):
                 phone_number,
                 ul["name"],
                 ul["subtotal_price"],
-                ul["line_items"][0]["name"],
+                ", ".join(item["name"] for item in ul["line_items"]),
                 confirm_address,
                 formatted_address,
             )
@@ -1352,6 +1490,127 @@ def geocode_endpoint():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/get_uncalled_leads", methods=["GET"])
+@login_required
+def get_uncalled_leads_api():
+    if "user" not in session:
+        return jsonify({"error": "User not authenticated"}), 401
+
+    uncalled_leads = get_uncalled_leads(current_user)
+    processed_leads = []
+
+    for lead in uncalled_leads:
+        try:
+            phone_number = extract_phone_number(lead.get("note_attributes", []))
+            if not phone_number:
+                continue
+
+            address = extract_address(lead.get("note_attributes", []))
+            item_name = ", ".join(
+                item.get("name", "") for item in lead.get("line_items", [])
+            )
+
+            processed_lead = {
+                "order_id": lead.get("name", ""),
+                "phone_number": format_phone_number(phone_number),
+                "address": address,
+                "item_name": item_name,
+                "order_value": lead.get("subtotal_price", ""),
+                "shipping_fee": lead.get("total_shipping_price_set", {})
+                .get("shop_money", {})
+                .get("amount", "0"),
+                "created_at": format_datetime(lead.get("created_at", "")),
+            }
+            processed_leads.append(processed_lead)
+        except Exception as e:
+            print(f"Error processing lead: {e}")
+            continue
+
+    return jsonify({"data": processed_leads})
+
+
+@app.route("/call_order", methods=["POST"])
+@login_required
+def call_order_endpoint():
+    if "user" not in session:
+        return jsonify({"error": "User not authenticated"}), 401
+
+    data = request.get_json()
+    if not data or "phone" not in data:
+        return jsonify({"error": "No phone number provided"}), 400
+
+    phone = data["phone"]
+    order_value = data.get("order_value", "necunoscută")
+    order_id = data.get("order_id", "")
+    item_name = data.get("item_name", "")
+    address = data.get("address", "")
+    delivery_fee = data.get("delivery_fee", "0")
+    user_email = session["user"]["email"]
+    status_key = f"status:{user_email}:{phone}"
+
+    # Check if already processed
+    # TODO: UNCOMMENT this
+    # existing_status = (
+    #     value := app.config["SESSION_REDIS"].get(status_key)
+    # ) and value.decode("utf-8")
+
+    # if existing_status != "No Answer" and existing_status != None:
+    #     return jsonify({"status": existing_status, "skipped": True})
+
+    # ADDRESS VALIDATION GOOGLE API
+    confirm_address = 0
+    try:
+        geocode_response = geocode_address(address)
+        if geocode_response["match_type"] != "exact":
+            confirm_address = 1
+        formatted_address = geocode_response["formatted_address"]
+    except Exception as e:
+        print(f"Error at geocode_address: {e}")
+        confirm_address = 1
+
+    try:
+        # Call the user and get their response
+        call_sid = init_outbound_call(
+            phone,
+            current_user.phone_number,
+            current_user.email,
+            order_id,
+            order_value,
+            item_name,
+            confirm_address,
+            formatted_address,
+            "order",
+            delivery_fee,
+        )
+
+        redis_key = f"call:{user_email}:{call_sid}"
+
+        # Wait for the response (poll the call_responses store)
+        timeout = 120  # Max wait time in seconds
+        elapsed = 0
+        interval = 1  # Check every second
+
+        while elapsed < timeout:
+            status = (
+                value := app.config["SESSION_REDIS"].get(redis_key)
+            ) and value.decode("utf-8")
+
+            if status:
+                app.config["SESSION_REDIS"].delete(redis_key)
+                app.config["SESSION_REDIS"].setex(
+                    status_key, 86400, status
+                )  # Persist status
+                return jsonify({"status": status})
+            tm.sleep(interval)
+            elapsed += interval
+
+        # If no response within timeout, return an error
+        return jsonify({"error": "No response received within timeout"}), 408
+
+    except Exception as e:
+        return jsonify({"error": f"Call failed: {str(e)}"}), 500
 
 
 if __name__ == "__main__":

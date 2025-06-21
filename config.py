@@ -29,3 +29,6 @@ class Config:
 
     # GEOCODING
     GEOCODING_API_KEY = os.getenv("GEOCODING_API_KEY")
+
+    # OPENAI
+    OPENAI_API_KEY = os.getenv("OPENAI_API")

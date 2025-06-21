@@ -12,7 +12,6 @@ from openai import OpenAI
 from config import Config
 
 from app import edit_order_note_by_email, change_address_by_email
-from app import app
 
 
 class ToolHandler:
@@ -24,10 +23,6 @@ class ToolHandler:
             "open_parcel": self.handle_open_parcel,
             "change_address": self.handle_change_address,
             "change_order_details": self.handle_change_order_details,
-            "confirm_order": self.handle_confirm_order,
-            "decline_order": self.handle_decline_order,
-            "confirm_address": self.handle_confirm_address,
-            "goodbye": self.handle_goodbye,
         }
 
     async def handle_tool_call(self, tool_name: str, arguments: dict = None):
@@ -45,12 +40,11 @@ class ToolHandler:
     async def handle_open_parcel(self, arguments: dict = None):
         """Handle request to open parcel at delivery"""
         try:
-            with app.app_context():
-                edit_order_note_by_email(
-                    self.conversation_state["user_email"],
-                    self.conversation_state["order_id"],
-                    "verificare colet",
-                )
+            edit_order_note_by_email(
+                self.conversation_state["user_email"],
+                self.conversation_state["order_id"],
+                "verificare colet",
+            )
             return "Am notat comanda pentru verificare colet la livrare."
         except Exception as e:
             print(f"Error handling open_parcel: {e}")
@@ -63,15 +57,12 @@ class ToolHandler:
 
         new_address = arguments["new_address"]
         try:
-            with app.app_context():
-                change_address_by_email(
-                    self.conversation_state["user_email"],
-                    self.conversation_state["order_id"],
-                    new_address,
-                )
-            # Update the conversation state with the new address
-            self.conversation_state["formatted_address"] = new_address
-            return f"Am notat noua adresă de livrare: {new_address}. Vă rog să confirmați dacă această adresă este corectă."
+            change_address_by_email(
+                self.conversation_state["user_email"],
+                self.conversation_state["order_id"],
+                new_address,
+            )
+            return f"Am notat noua adresă de livrare: {new_address}"
         except Exception as e:
             print(f"Error handling change_address: {e}")
             return "Îmi pare rău, dar nu am putut actualiza adresa de livrare."
@@ -98,65 +89,6 @@ class ToolHandler:
         except Exception as e:
             print(f"Error handling change_order_details: {e}")
             return "Îmi pare rău, dar nu am putut procesa modificările la comandă."
-
-    async def handle_confirm_order(self, arguments: dict = None):
-        """Handle order confirmation"""
-        try:
-            await send_call_result_to_server_a(
-                self.conversation_state["call_sid"],
-                self.conversation_state["to_phone_number"],
-                self.conversation_state["user_email"],
-                self.conversation_state["order_id"],
-                self.conversation_state["type"],
-                "confirmed",
-            )
-            self.conversation_state["order_confirmed"] = True
-            if self.conversation_state["requires_address_confirmation"]:
-                return f"Perfect! Acum vă rog să confirmați dacă adresa este corectă: {self.conversation_state['formatted_address']}. Puteți confirma adresa sau cereți să o schimbați."
-            else:
-                return "Perfect! Comanda este confirmată. La revedere!"
-        except Exception as e:
-            print(f"Error handling confirm_order: {e}")
-            return "Îmi pare rău, dar nu am putut confirma comanda."
-
-    async def handle_decline_order(self, arguments: dict = None):
-        """Handle order decline"""
-        try:
-            await send_call_result_to_server_a(
-                self.conversation_state["call_sid"],
-                self.conversation_state["to_phone_number"],
-                self.conversation_state["user_email"],
-                self.conversation_state["order_id"],
-                self.conversation_state["type"],
-                "declined",
-            )
-            self.conversation_state["order_declined"] = True
-            return "Înțeleg că doriți să anulați comanda. La revedere!"
-        except Exception as e:
-            print(f"Error handling decline_order: {e}")
-            return "Îmi pare rău, dar nu am putut anula comanda."
-
-    async def handle_confirm_address(self, arguments: dict = None):
-        """Handle address confirmation"""
-        try:
-            await send_call_result_to_server_a(
-                self.conversation_state["call_sid"],
-                self.conversation_state["to_phone_number"],
-                self.conversation_state["user_email"],
-                self.conversation_state["order_id"],
-                self.conversation_state["type"],
-                "confirmed",
-            )
-            self.conversation_state["address_confirmed"] = True
-            return "Perfect! Comanda este confirmată. La revedere!"
-        except Exception as e:
-            print(f"Error handling confirm_address: {e}")
-            return "Îmi pare rău, dar nu am putut confirma adresa."
-
-    async def handle_goodbye(self, arguments: dict = None):
-        """Handle goodbye message"""
-        self.conversation_state["call_ended"] = True
-        return "La revedere! O zi bună!"
 
 
 # Create logs directory if it doesn't exist
@@ -234,6 +166,41 @@ def format_results(results):
     return f"<sources>{formatted_results}</sources>"
 
 
+INSTRUCTION_TEMPLATE = """Instrucțiuni: Clasifică mesajul utilizatorului într-una din următoarele categorii:
+- confirm_order
+- refuse_order
+- confirm_address
+- change_address
+- others
+
+Intrebare: {bot_question}
+Mesaj: "{message}"
+"""
+
+
+def get_intent_openai(bot_question: str, user_response: str) -> str:
+    intents = [
+        "confirm_order",
+        "refuse_order",
+        "confirm_address",
+        "change_address",
+        "others",
+    ]
+
+    formatted_prompt = INSTRUCTION_TEMPLATE.format(
+        bot_question=bot_question, message=user_response
+    )
+    response = client.responses.create(model="gpt-4.1-nano", input=formatted_prompt)
+
+    result = "unknown"
+    for intent in intents:
+        if intent in response.output_text:
+            result = intent
+            break
+    print(f"Predicted intent: {result}")
+    return result
+
+
 def agentic_response(
     user_query: str,
     order_value: str,
@@ -241,25 +208,19 @@ def agentic_response(
     order_items: str,
     store_name: str,
     formatted_address: str,
-    conversation_history: list = None,
 ):
     """
     This function is used to handle the conversation between the user and the agent.
     The tools the agent can call are:
     - intent_not_found: if there is no real answer in the provided information
     - open_parcel: if the client wants to open the parcel at delivery
+    - change_address: if the client wants to change the delivery address
     - change_order_details: if the client wants to change the order details (size, color, quantity, etc.)
-    - confirm_order: if the client confirms the order
-    - decline_order: if the client declines the order
-    - confirm_address: if the client confirms the address
-    - change_address: if the client wants to change the address
-    - goodbye: if the client says goodbye or wants to end the call
 
     user_query: the user's query
     order_value: the order value
     transportation_fee: the transportation fee
     order_items: the order items
-    conversation_history: list of previous conversation messages
 
     Returns:
     - type: the type of the response
@@ -269,38 +230,25 @@ def agentic_response(
 
     formatted_date = datetime.now().strftime("Today is %A, %B %d, %Y at %H:%M:%S")
 
-    SYSYEM_PROMPT = """You are a professional AI voice agent that speaks fluent Romanian.
-Your role is to confirm online orders and answer customer questions about delivery, changes, or issues.
+    SYSYEM_PROMPT = """You are a professional AI voice agent that speaks fluent Romanian. Your role is to confirm online orders and answer customer questions related to their orders (delivery, issues, changes).
+Always keep your responses short, clear, respectful, and professional.
 Speak naturally, calmly, and avoid sounding robotic or overly casual.
-Always keep responses short, clear, respectful, and professional.
-For complex issues, politely direct the customer to human support.
+If needed, politely guide the customer to contact human support for complex issues.
+The client might ask to open and verify the parcel at delivery. They can do so, call the tool "open_parcel".
+If the client wants to change the delivery address, call the tool "change_address".
+If the client wants to change the order details (size, color, quantity, etc.), call the tool "change_order_details".
+If the shipping address does not look correct, ask the client to confirm the address or change it.
 
-Your main goal is to help the customer confirm their order and address. You should:
-	1.	Answer questions about the order, delivery, or address
-	2.	Handle requests to change order details or address
-	3.	Confirm or decline the order when the customer is ready
-	4.	Confirm or decline the address when the customer is ready
+There are 4 tools that you can call:
+1. intent_not_found if there is no real answer in the provided information
+2. open_parcel if the client wants to open the parcel at delivery
+3. change_address if the client wants to change the delivery address; this tool needs to be called with the new address as an argument, if the user does not provide the new address, the tool will not be called and the user will be asked to provide the new address
+4. change_order_details if the client wants to change the order details (size, color, quantity, etc.);
 
-The client might ask to open and verify the parcel at delivery. In this case, call the tool open_parcel.
-
-There are 8 tools you can call:
-	1.	intent_not_found - when there's no clear intent
-	2.	open_parcel - when the client wants to open the parcel at delivery
-	3.	change_address - when the client wants to change the delivery address
-	4.	change_order_details - when the client wants to change size, color, quantity, etc.
-	5.	confirm_order - when the client confirms the order
-	6.	decline_order - when the client declines the order
-	7.	confirm_address - when the client confirms the address
-	8.	goodbye - when the client says goodbye or wants to hang up.
-
-IMPORTANT:
-	•	Use change_order_details with new details as the argument.
-	•	Use confirm_order when the client confirms that they placed the order.
-	•	Use decline_order when the client declines the order.
-	•	Only use change_address when youy also have the new address for delivery.
-	•	Use goodbye when the client expresses a desire to end the call.
+IMPORTANT: If the client wants to change the order details, the tool "change_order_details" needs to be called with the new order details as an argument, if the user does not provide the new order details, the tool will not be called and the user will be asked to provide the new order details. If the product they want to change is not in the order, the tool will not be called and the user will be asked to provide the new order details.
 """
 
+    # TODO: skip inent_detect -> full agent
     CONTEXT = f"""
 TODAY'S DATE&TIME: {formatted_date}.
 
@@ -312,30 +260,18 @@ ORDER DETAILS:
 - SHIPPING ADDRESS: {formatted_address}
 """
 
-    # Build conversation history for context
-    messages = [
-        {
-            "role": "system",
-            "content": SYSYEM_PROMPT + "\n" + CONTEXT,
-        }
-    ]
-
-    # Add conversation history if provided
-    if conversation_history:
-        for msg in conversation_history:
-            messages.append(msg)
-
-    # Add current user query
-    messages.append(
-        {
-            "role": "user",
-            "content": user_query,
-        }
-    )
-
     completion = client.responses.create(
         model="gpt-4.1-nano",
-        input=messages,
+        input=[
+            {
+                "role": "system",
+                "content": SYSYEM_PROMPT + "\n" + CONTEXT,
+            },
+            {
+                "role": "user",
+                "content": user_query,
+            },
+        ],
         tools=[
             {
                 "type": "function",
@@ -401,34 +337,6 @@ ORDER DETAILS:
                 },
                 "strict": False,
             },
-            {
-                "type": "function",
-                "name": "confirm_order",
-                "description": "Confirm the order when the customer agrees to proceed.",
-                "parameters": {"type": "object", "properties": {}, "required": []},
-                "strict": False,
-            },
-            {
-                "type": "function",
-                "name": "decline_order",
-                "description": "Decline the order when the customer wants to cancel.",
-                "parameters": {"type": "object", "properties": {}, "required": []},
-                "strict": False,
-            },
-            {
-                "type": "function",
-                "name": "confirm_address",
-                "description": "Confirm the address when the customer agrees it's correct.",
-                "parameters": {"type": "object", "properties": {}, "required": []},
-                "strict": False,
-            },
-            {
-                "type": "function",
-                "name": "goodbye",
-                "description": "End the call when the customer says goodbye or wants to hang up.",
-                "parameters": {"type": "object", "properties": {}, "required": []},
-                "strict": False,
-            },
         ],
     )
 
@@ -477,18 +385,44 @@ async def end_session(websocket):
 async def handle_connection(websocket):
     # Store the current state of the conversation
     conversation_state = {
+        "waiting_for_order_confirmation": False,
+        "waiting_for_address_confirmation": False,
+        "waiting_for_new_address": False,
         "formatted_address": "",
         "call_sid": "",
         "to_phone_number": "",
         "user_email": "",
         "order_id": "",
         "type": "",
-        "order_confirmed": False,
-        "order_declined": False,
-        "address_confirmed": False,
-        "requires_address_confirmation": False,
-        "conversation_history": [],
+        "retry_count": 0,
+        "first_user_question": True,
     }
+
+    async def handle_unknown_response():
+        """Handle cases where the system doesn't understand the user"""
+        conversation_state["retry_count"] += 1
+        if conversation_state["retry_count"] < 3:
+            if conversation_state["waiting_for_order_confirmation"]:
+                await send_text(
+                    websocket,
+                    "Nu am înțeles exact. Vă rog să-mi spuneți dacă doriți să confirmați comanda sau să o anulați.",
+                )
+            elif conversation_state["waiting_for_address_confirmation"]:
+                await send_text(
+                    websocket,
+                    "Nu am înțeles exact. Vă rog să-mi spuneți dacă adresa este corectă sau doriți să o schimbați.",
+                )
+            elif conversation_state["waiting_for_new_address"]:
+                await send_text(
+                    websocket,
+                    "Nu am înțeles exact. Vă rog să-mi spuneți din nou adresa de livrare.",
+                )
+        else:
+            await send_text(
+                websocket,
+                "Îmi pare rău, dar nu vă pot înțelege. Vă rog să încercați din nou mai târziu. La revedere!",
+            )
+            await end_session(websocket)
 
     async for message in websocket:
         print("\n📩 RAW MESSAGE:")
@@ -532,11 +466,6 @@ async def handle_connection(websocket):
                 .replace("http://", "")
                 .rstrip("/")
             )
-            initial_message = custom_params.get("initial_message", "")
-
-            if confirm_address == "1":
-                conversation_state["requires_address_confirmation"] = True
-
             # Store the conversation state
             conversation_state.update(
                 {
@@ -546,16 +475,11 @@ async def handle_connection(websocket):
                     "order_id": order_id,
                     "type": type,
                     "formatted_address": formatted_address,
+                    "waiting_for_order_confirmation": True,
                 }
             )
-
             # Initialize the tool handler
             tool_handler = ToolHandler(websocket, conversation_state)
-
-            # Add initial greeting to conversation history
-            conversation_state["conversation_history"].append(
-                {"role": "assistant", "content": initial_message}
-            )
 
         elif event_type == "prompt":
             transcript = data.get("voicePrompt")
@@ -567,48 +491,196 @@ async def handle_connection(websocket):
             )
             print()
 
-            # Add user message to conversation history
-            conversation_state["conversation_history"].append(
-                {"role": "user", "content": transcript}
-            )
+            # intent detection
+            if conversation_state["waiting_for_order_confirmation"]:
+                intent = get_intent_openai("confirmi comanda?", transcript)
+            elif conversation_state["waiting_for_address_confirmation"]:
+                intent = get_intent_openai("confirmi adresa?", transcript)
+            elif conversation_state["waiting_for_new_address"]:
+                pass
+            else:
+                intent = "unknown"
 
-            # Use the AI agent to handle the response
-            agent_response = agentic_response(
-                user_query=transcript,
-                order_value=order_value,
-                transportation_fee=transportation_fee,
-                order_items=items_list,
-                store_name=store_url,
-                formatted_address=formatted_address,
-                conversation_history=conversation_state["conversation_history"],
-            )
+            if intent == "unknown":
+                await handle_unknown_response()
+                continue
 
-            if agent_response[0] == "function_call":
-                reply = await tool_handler.handle_tool_call(
-                    agent_response[1], agent_response[2]
-                )
+            if conversation_state["waiting_for_order_confirmation"]:
+                if "confirm" in intent:
+                    conversation_state["waiting_for_order_confirmation"] = False
+                    if str(confirm_address) == "1":
+                        conversation_state["waiting_for_address_confirmation"] = True
+                        await send_text(
+                            websocket,
+                            f"Perfect! Acum vă rog să confirmați dacă adresa este corectă: {formatted_address}. "
+                            "Puteți confirma adresa sau cereți să o schimbați.",
+                        )
+                    else:
+                        await send_text(
+                            websocket, "Perfect! Comanda este confirmată. La revedere!"
+                        )
+                        await send_call_result_to_server_a(
+                            conversation_state["call_sid"],
+                            conversation_state["to_phone_number"],
+                            conversation_state["user_email"],
+                            conversation_state["order_id"],
+                            conversation_state["type"],
+                            "confirmed",
+                        )
+                        time.sleep(4)
+                        await end_session(websocket)
 
-                if (
-                    agent_response[1] == "confirm_address"
-                    or (
-                        agent_response[1] == "confirm_order"
-                        and conversation_state["requires_address_confirmation"] == False
+                elif "refuse" in intent:
+                    await send_text(
+                        websocket, "Înțeleg că doriți să anulați comanda. La revedere!"
                     )
-                    or agent_response[1] == "decline_order"
-                    or agent_response[1] == "goodbye"
-                ):
-                    await send_text(websocket, reply)
+                    await send_call_result_to_server_a(
+                        conversation_state["call_sid"],
+                        conversation_state["to_phone_number"],
+                        conversation_state["user_email"],
+                        conversation_state["order_id"],
+                        conversation_state["type"],
+                        "declined",
+                    )
                     time.sleep(4)
                     await end_session(websocket)
-                else:
-                    await send_text(websocket, reply)
-            else:
-                reply = agent_response[1]
-                await send_text(websocket, reply)
 
-            conversation_state["conversation_history"].append(
-                {"role": "assistant", "content": reply}
-            )
+                else:
+                    if conversation_state["first_user_question"]:
+                        print("first user question")
+                        conversation_state["first_user_question"] = False
+                        await send_text(
+                            websocket,
+                            "Va rog sa asteptati un minut sa verific comanda.",
+                        )
+
+                    agent_response = agentic_response(
+                        user_query=transcript,
+                        order_value=order_value,
+                        transportation_fee=transportation_fee,
+                        order_items=items_list,
+                        store_name=store_url,
+                        formatted_address=formatted_address,
+                    )
+                    if agent_response[0] == "function_call":
+                        reply = await tool_handler.handle_tool_call(
+                            agent_response[1], agent_response[2]
+                        )
+                    else:
+                        reply = agent_response[1]
+                    if "?" not in reply:
+                        reply += "  Acum doriți să confirmați comanda?"
+                    else:
+                        conversation_state["waiting_for_order_confirmation"] = False
+                    await send_text(
+                        websocket,
+                        reply,
+                    )
+
+            elif conversation_state["waiting_for_address_confirmation"]:
+                if "confirm" in intent:
+                    await send_text(
+                        websocket, "Perfect! Comanda este confirmată. La revedere!"
+                    )
+                    await send_call_result_to_server_a(
+                        conversation_state["call_sid"],
+                        conversation_state["to_phone_number"],
+                        conversation_state["user_email"],
+                        conversation_state["order_id"],
+                        conversation_state["type"],
+                        "confirmed",
+                    )
+                    time.sleep(4)
+                    await end_session(websocket)
+
+                elif intent == "change_address":
+                    conversation_state["waiting_for_address_confirmation"] = False
+                    conversation_state["waiting_for_new_address"] = True
+                    await send_text(
+                        websocket,
+                        "Vă rog să-mi spuneți noua adresă de livrare. "
+                        "Spuneți-o clar și complet, inclusiv strada, numărul, orașul, județul și codul poștal.",
+                    )
+
+                else:
+                    agent_response = agentic_response(
+                        user_query=transcript,
+                        order_value=order_value,
+                        transportation_fee=transportation_fee,
+                        order_items=items_list,
+                        store_name=store_url,
+                        formatted_address=formatted_address,
+                    )
+                    if agent_response[0] == "function_call":
+                        reply = await tool_handler.handle_tool_call(
+                            agent_response[1], agent_response[2]
+                        )
+                    else:
+                        reply = agent_response[1]
+                    if "?" not in reply and "adres" not in reply:
+                        reply += "  Acum doriți să confirmați adresa?"
+                    await send_text(
+                        websocket,
+                        reply,
+                    )
+
+            elif conversation_state["waiting_for_new_address"]:
+                agent_response = agentic_response(
+                    user_query="vreau sa schimb adresa de livrare in: " + transcript,
+                    order_value=order_value,
+                    transportation_fee=transportation_fee,
+                    order_items=items_list,
+                    store_name=store_url,
+                    formatted_address=formatted_address,
+                )
+                if agent_response[0] == "function_call":
+                    reply = await tool_handler.handle_tool_call(
+                        agent_response[1], agent_response[2]
+                    )
+                    try:
+                        new_address = agent_response[2]["new_address"]
+                        conversation_state["waiting_for_new_address"] = False
+                        conversation_state["waiting_for_address_confirmation"] = True
+                        conversation_state["formatted_address"] = new_address
+                        await send_text(
+                            websocket,
+                            f"Am notat noua adresă: {new_address}. Vă rog să confirmați dacă această adresă este corectă. "
+                            "Puteți confirma adresa sau cereți să o schimbați din nou.",
+                        )
+                    except:
+                        await send_text(
+                            websocket,
+                            "Nu am înțeles adresa. Vă rog să o spuneți din nou.",
+                        )
+                        continue
+                else:
+                    reply = agent_response[1]
+                    await send_text(
+                        websocket, "Nu am înțeles adresa. Vă rog să o spuneți din nou."
+                    )
+                    continue
+            else:  # if the user is not waiting for order confirmation or address confirmation
+                agent_response = agentic_response(
+                    user_query=transcript,
+                    order_value=order_value,
+                    transportation_fee=transportation_fee,
+                    order_items=items_list,
+                    store_name=store_url,
+                    formatted_address=formatted_address,
+                )
+                if agent_response[0] == "function_call":
+                    reply = await tool_handler.handle_tool_call(
+                        agent_response[1], agent_response[2]
+                    )
+                else:
+                    reply = agent_response[1]
+                if "?" not in reply:
+                    reply += "  Acum doriți să confirmați comanda?"
+                    conversation_state["waiting_for_order_confirmation"] = True
+                await send_text(
+                    websocket,
+                    reply,
+                )
 
         elif event_type == "end":
             print("Call ended")

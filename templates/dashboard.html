@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ecomdraft Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="icon" href="/static/images/favicon.png" type="image/png">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -547,6 +548,62 @@
         .tab-content.active {
             display: block;
         }
+
+        .uncalled-leads-section {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .leads-table-container {
+            overflow-x: auto;
+        }
+
+        #uncalled-leads-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        #uncalled-leads-table th,
+        #uncalled-leads-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        #uncalled-leads-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+
+        .call-lead-btn {
+            padding: 0.5rem 1rem;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .call-lead-btn:hover {
+            background-color: #0056b3;
+        }
+
+        .call-lead-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
     </style>
     <script>
         let isCalling = false;
@@ -796,6 +853,31 @@
                     </table>
                 </div>
             </div>
+
+            <!-- Uncalled Leads Section -->
+            <div class="uncalled-leads-section">
+                <div class="section-header">
+                    <h3>Uncalled Leads</h3>
+                    <button class="action-btn" onclick="loadUncalledLeads()">Load Uncalled Leads</button>
+                </div>
+                <div class="leads-table-container">
+                    <table id="uncalled-leads-table">
+                        <thead>
+                            <tr>
+                                <th>Order ID</th>
+                                <th>Phone Number</th>
+                                <th>Address</th>
+                                <th>Item</th>
+                                <th>Order Value</th>
+                                <th>Shipping Fee</th>
+                                <th>Created At</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="uncalled-leads-body"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -824,6 +906,27 @@
                         <label for="outbound-address">Address</label>
                         <input type="text" id="outbound-address" placeholder="Enter address" class="demo-input">
                     </div>
+                </div>
+                <div class="demo-call-row">
+                    <div class="demo-call-field">
+                        <label for="outbound-order-amount">Order Amount</label>
+                        <input type="number" id="outbound-order-amount" placeholder="Enter order amount"
+                            class="demo-input" step="0.01">
+                    </div>
+                    <div class="demo-call-field">
+                        <label for="outbound-delivery-fee">Delivery Fee</label>
+                        <input type="number" id="outbound-delivery-fee" placeholder="Enter delivery fee"
+                            class="demo-input" step="0.01">
+                    </div>
+                </div>
+                <div class="demo-call-row">
+                    <div class="demo-call-field" style="width: 100%;">
+                        <label for="outbound-items">Order Items (one per line)</label>
+                        <textarea id="outbound-items" placeholder="Enter items, one per line" class="demo-input"
+                            rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="demo-call-row">
                     <div class="demo-call-field checkbox-field">
                         <label class="checkbox-label">
                             <input type="checkbox" id="outbound-confirm-address-toggle">
@@ -892,7 +995,7 @@
                 <div class="form-group">
                     <label for="voice_message">Custom Voice Message for ORDERS:</label>
                     <textarea id="voice_message" rows="4"
-                        placeholder="Enter your custom voice message. Use {order_value} as a placeholder for the order amount. Use {item_name} as a placeholder for the item's name.">{{ current_user.voice_message or 'Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dvs.?' }}</textarea>
+                        placeholder="Enter your custom voice message. Use {order_value} as a placeholder for the order amount. Use {item_name} as a placeholder for the item's name. Make sure to specify the currency (e.g., LEI, EUR) in your message.">{{ current_user.voice_message or 'Bună ziua! Ați plasat recent o comandă pe magazinul nostru pentru suma de {order_value} lei. Puteți confirma comanda dvs.?' }}</textarea>
                 </div>
                 <div class="form-group">
                     <label for="voice_message_draft">Custom Voice Message for DRAFTS:</label>
@@ -900,15 +1003,27 @@
                         placeholder="Enter your custom voice message for draft orders.">{{ current_user.voice_message_draft or 'no saved message' }}</textarea>
                     <small class="help-text">Use {order_value} as a placeholder for the order amount.</small>
                     <small class="help-text">Use {item_name} as a placeholder for the item's name.</small>
+                    <small class="help-text">Make sure to specify the currency (e.g., LEI, EUR) in your message.</small>
                 </div>
                 <div class="form-group">
                     <label for="voice_gender">Voice Gender:</label>
                     <select id="voice_gender"
                         style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
-                        <option value="m" {% if current_user.agent_gender=='m' %}selected{% endif %}>Male Voice
+                        <option value="f_1" {% if current_user.agent_gender=='f_1' %}selected{% endif %}>Female 1 (Ana
+                            Maria)
                         </option>
-                        <option value="f" {% if current_user.agent_gender=='f' %}selected{% endif %}>Female
-                            Voice</option>
+                        <option value="f_2" {% if current_user.agent_gender=='f_2' %}selected{% endif %}>Female 2
+                            (Corina Ioana)
+                        </option>
+                        <option value="f_3" {% if current_user.agent_gender=='f_3' %}selected{% endif %}>Female 3 (Lara
+                            Croft)
+                        </option>
+                        <option value="m_1" {% if current_user.agent_gender=='m_1' %}selected{% endif %}>Male 1 (Mike L)
+                        </option>
+                        <option value="m_2" {% if current_user.agent_gender=='m_2' %}selected{% endif %}>Male 2 (Andrei)
+                        </option>
+                        <option value="m_3" {% if current_user.agent_gender=='m_3' %}selected{% endif %}>Male 3 (Cristi
+                            Romana)</option>
                     </select>
                     <small class="help-text">Select the gender of the voice that will make the calls.</small>
                 </div>
@@ -1060,6 +1175,11 @@
             const phoneNumber = document.getElementById('outbound-phone').value.trim();
             const confirmAddress = document.getElementById('outbound-confirm-address-toggle').checked;
             const address = document.getElementById('outbound-address').value.trim();
+            const type = document.getElementById('call-type-selector').value;
+            const orderAmount = document.getElementById('outbound-order-amount').value.trim();
+            const deliveryFee = document.getElementById('outbound-delivery-fee').value.trim();
+            const items = document.getElementById('outbound-items').value.trim().split('\n').filter(item => item.trim());
+
             if (!phoneNumber) {
                 alert('Please enter a phone number');
                 return;
@@ -1079,6 +1199,10 @@
                         to_phone_number: phoneNumber,
                         confirm_address: confirmAddress,
                         address: address,
+                        type: type,
+                        order_amount: orderAmount,
+                        delivery_fee: deliveryFee,
+                        items: items
                     })
                 });
 
@@ -1179,6 +1303,75 @@
             // Show the selected tab content and mark the button as active
             document.getElementById(tabName).classList.add("active");
             evt.currentTarget.classList.add("active");
+        }
+
+        function loadUncalledLeads() {
+            fetch("/get_uncalled_leads")
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById("uncalled-leads-body");
+                    tbody.innerHTML = ""; // Clear current table
+
+                    data.data.forEach(lead => {
+                        const row = document.createElement("tr");
+                        row.innerHTML = `
+                            <td>${lead.order_id}</td>
+                            <td>${lead.phone_number}</td>
+                            <td>${lead.address}</td>
+                            <td>${lead.item_name}</td>
+                            <td>${lead.order_value}</td>
+                            <td>${lead.shipping_fee}</td>
+                            <td>${lead.created_at}</td>
+                            <td>
+                                <button class="call-lead-btn" onclick="callLead('${lead.phone_number}', '${lead.order_id}', '${lead.order_value}', '${lead.item_name}', '${lead.address}', '${lead.shipping_fee}')">
+                                    Call
+                                </button>
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                })
+                .catch(error => {
+                    console.error("Error loading uncalled leads:", error);
+                    alert("Failed to load uncalled leads. Please try again.");
+                });
+        }
+
+        async function callLead(phone, orderId, orderValue, itemName, address, shippingFee) {
+            const button = event.target;
+            button.disabled = true;
+            button.textContent = "Calling...";
+
+            try {
+                const response = await fetch("/call_order", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        phone: phone,
+                        order_id: orderId,
+                        order_value: orderValue,
+                        item_name: itemName,
+                        address: address,
+                        delivery_fee: shippingFee
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.error) {
+                    alert(result.error);
+                } else if (result.skipped) {
+                    alert(`This lead was already processed with status: ${result.status}`);
+                } else {
+                    alert(`Call initiated with status: ${result.status}`);
+                }
+            } catch (error) {
+                console.error("Error making call:", error);
+                alert("Failed to initiate call. Please try again.");
+            } finally {
+                button.disabled = false;
+                button.textContent = "Call";
+            }
         }
     </script>
 
